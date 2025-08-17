@@ -1,4 +1,3 @@
-
 // ==== Firebase (compat, no ESM) ====
 (function(){
   const firebaseConfig = {
@@ -14,6 +13,7 @@
   window.DB = firebase.database();
   window.AUTH = firebase.auth?.();
 })();
+
 const PHRASES_PATH = "/deutsch_phrases";
 const VOCAB_PATH   = "/deutsch_vocab";
 const DICT_PATH    = "/deutsch_dict";
@@ -46,7 +46,7 @@ const loadLocal = ()=>{ try{
 }catch{ state.phrases=[]; state.temas=DEFAULT_TEMAS.slice(); state.vocab=[]; state.dict={}; } };
 
 // ==== Diccionario global (PipeDict v1) ====
-const did = (s)=> uid("d||"+(s||"")).slice(3); // id estable corto
+const did = (s)=> uid("d||"+(s||"")).slice(3);
 const dictGet = (id)=> (state.dict?.[id] ?? "");
 const dictEnsure = (text)=>{
   const t=(text||"").trim(); if(!t) return "";
@@ -93,8 +93,8 @@ function parsePipeDict(text){
   return { phrases: outP, vocab: outV };
 }
 
-// ==== Heurísticas (no usadas por PipeDict, se mantienen por compat) ====
-const DET_SET = new Set(["ein","eine","einen","einem","einer","eines","der","die","das","den","dem","des","kein","keine","keinen","keinem","keiner","keines","mein","dein","sein","ihr","unser","euer","ihr","ihr".toLowerCase()]);
+// ==== Heurísticas (compat) ====
+const DET_SET = new Set(["ein","eine","einen","einem","einer","eines","der","die","das","den","dem","des","kein","keine","keinen","keinem","keiner","keines","mein","dein","sein","ihr","unser","euer"]);
 const PRON_SET = new Set(["ich","du","er","sie","es","wir","ihr","sie","mich","dich","ihn","uns","euch","ihnen","mir","dir","ihm","ihr"]);
 const PREP_SET = new Set(["an","auf","aus","bei","mit","nach","seit","von","zu","über","unter","vor","hinter","neben","zwischen","durch","für","gegen","ohne","um","bis","entlang","trotz","während","wegen","ausser","außer","gegenüber","innerhalb","außerhalb"]);
 const ADV_SET  = new Set(["heute","morgen","gestern","jetzt","gleich","hier","dort","da","sehr","gern","gerne","immer","nie","oft","bald","später"]);
@@ -105,7 +105,6 @@ function guessTags(originalToken, lower){
   if(PRON_SET.has(lower)) tags.push("pronombre");
   if(PREP_SET.has(lower)) tags.push("preposición");
   if(ADV_SET.has(lower))  tags.push("adverbio");
-  if(ADV_SET.has(lower))  tags.push("adjetivo");
   if(COURTESY_SET.has(lower)) tags.push("cortesía");
   if(!tags.length && /[a-zäöüß\-]{3,}en$/.test(lower)) tags.push("verbo");
   if(!tags.length && /^[A-ZÄÖÜ]/.test(originalToken)) tags.push("sustantivo");
@@ -115,12 +114,10 @@ function guessTags(originalToken, lower){
 
 // ==== Render tarjetas (Frases) ====
 function updateTemaSelects(){
-  ["#fTema","#rTema"].forEach(id=>{
-    const sel=$(id); if(!sel) return;
-    const cur=sel.value;
-    sel.innerHTML=`<option value="">Tema</option>${state.temas.map(t=>`<option>${t}</option>`).join("")}`;
-    if(cur) sel.value=cur;
-  });
+  const sel=$("#fTema"); if(!sel) return;
+  const cur=sel.value;
+  sel.innerHTML=`<option value="">Tema</option>${state.temas.map(t=>`<option>${t}</option>`).join("")}`;
+  if(cur) sel.value=cur;
 }
 function renderCard(p){
   return `
@@ -167,8 +164,8 @@ function renderList(){
 
   $$("#phraseList .card-item").forEach(item=>{
     const id=item.dataset.id; const p=state.phrases.find(x=>x.id===id);
-    item.querySelector(".btn-del").addEventListener("click", (e)=>{ e.stopPropagation(); delPhrase(id); });
-    item.querySelector(".btn-edit").addEventListener("click", (e)=>{ e.stopPropagation(); quickEdit(p); });
+    item.querySelector(".btn-del")?.addEventListener("click", (e)=>{ e.stopPropagation(); delPhrase(id); });
+    item.querySelector(".btn-edit")?.addEventListener("click", (e)=>{ e.stopPropagation(); quickEdit(p); });
   });
 }
 
@@ -274,8 +271,8 @@ function renderVocab(){
       openVocabModal(item);
     });
     el.addEventListener("keydown", (e)=>{ if(e.key==="Enter"||e.key===" ") { e.preventDefault(); openVocabModal(item);} });
-    el.querySelector(".btn-v-edit").addEventListener("click", (e)=>{ e.stopPropagation(); openVocabModal(item); });
-    el.querySelector(".btn-v-del").addEventListener("click", async (e)=>{ 
+    el.querySelector(".btn-v-edit")?.addEventListener("click", (e)=>{ e.stopPropagation(); openVocabModal(item); });
+    el.querySelector(".btn-v-del")?.addEventListener("click", async (e)=>{ 
       e.stopPropagation();
       await delVocab(id);
       renderVocab();
@@ -386,21 +383,50 @@ function exportPipeDict(arr){
   return lines.join("\n");
 }
 
-// ==== UI / Import ====
+// === UTIL global: copiar o descargar ===
+async function copyTextOrDownload(filename, text){
+  try{
+    if(navigator.clipboard && window.isSecureContext){
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  }catch{}
+  const blob=new Blob([text],{type:"text/plain;charset=utf-8"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url; a.download=filename; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },0);
+  return false;
+}
+
+// ==== UI / Tabs / Import ====
+function setActiveTab(tab){
+  // botones
+  $$(".tab, .tablink").forEach(b=>{
+    b.classList.toggle("active", b.dataset.tab===tab);
+  });
+  // panels: clase + atributo hidden
+  $$(".panel").forEach(p=>{
+    const active = p.id===`tab-${tab}`;
+    p.classList.toggle("active", active);
+    p.toggleAttribute("hidden", !active);
+  });
+}
+
 function setupUI(){
   // Tabs
   $$(".tab, .tablink").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      const tab=btn.dataset.tab;
-      $$(".tab, .tablink").forEach(b=>b.classList.toggle("active", b.dataset.tab===tab));
-      $$(".panel").forEach(p=>p.classList.toggle("active", p.id===`tab-${tab}`));
-    });
+    btn.addEventListener("click", ()=> setActiveTab(btn.dataset.tab));
   });
 
-  // Ajustes (info Firebase)
+  // Ajustes (dialog correcto)
   $("#btnSettings")?.addEventListener("click", ()=>{
-    $("#fbInfo") && ($("#fbInfo").textContent = JSON.stringify({ projectId:firebase.app().options.projectId, db:"RTDB" }, null, 2));
-    $("#settingsDlg")?.showModal();
+    try{
+      const info = { projectId: firebase.app().options.projectId, db:"RTDB" };
+      const box = $("#fbInfo");
+      if(box) box.textContent = JSON.stringify(info, null, 2);
+    }catch{}
+    $("#settingsDialog")?.showModal();
   });
 
   // Importar (PipeDict v1)
@@ -442,74 +468,32 @@ function setupUI(){
     el.addEventListener("change",renderList);
   });
 
- // Export PipeDict v1 (frases) → portapapeles
-$("#btnExportPipeDict")?.addEventListener("click", ()=>{
-  const txt = exportPipeDict(state.phrases);
-  navigator.clipboard?.writeText(txt).catch(console.warn);
-});
+  // Export PipeDict v1 (frases)
+  $("#btnExportPipeDict")?.addEventListener("click", async ()=>{
+    const txt = exportPipeDict(state.phrases);
+    await copyTextOrDownload("phrases_pipe.txt", txt);
+  });
 
-// === UTIL: copiar con fallback a descarga ===
-async function copyTextOrDownload(filename, text){
-  try{
-    if(navigator.clipboard && window.isSecureContext){
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  }catch{}
-  const blob=new Blob([text],{type:"text/plain;charset=utf-8"});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement("a");
-  a.href=url; a.download=filename; document.body.appendChild(a); a.click();
-  setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },0);
-  return false;
-}
-
-// === setupUI(): handlers correctos ===
-
-// Export SIMPLE (vocab) → portapapeles o descarga
-(() => {
-  const btn = document.getElementById("btnExportSimple");
-  if(!btn) return;
-  btn.addEventListener("click", async ()=>{
+  // Export vocab simple
+  $("#btnExportVocab")?.addEventListener("click", async ()=>{
     const mode = $("#vocabMode")?.value || "es";
     const txt  = exportVocabSimple(state.vocab, mode);
     await copyTextOrDownload(`vocab_${mode}.txt`, txt);
   });
-})();
 
-// Export PipeDict v1 (frases) → portapapeles o descarga
-(() => {
-  const btn = document.getElementById("btnExportPipeDict");
-  if(!btn) return;
-  btn.addEventListener("click", async ()=>{
-    const txt = exportPipeDict(state.phrases);
-    await copyTextOrDownload("phrases_pipe.txt", txt);
-  });
-})();
   // Vocab UI mode
   $("#vocabMode")?.addEventListener("change", (e)=>{
     state.vocabMode = e.target.value || "es";
     renderVocab();
   });
+
+  // Estado inicial de panels (corrige [hidden] del HTML)
+  setActiveTab($(".tab.active, .tablink.active")?.dataset.tab || "import");
 }
-
-// Export PipeDict (frases)
-document.getElementById("btnExportPipeDict")?.addEventListener("click", async ()=>{
-  const txt = exportPipeDict(state.phrases);
-  await copyTextOrDownload("phrases_pipe.txt", txt);
-});
-
-// Export vocab simple
-document.getElementById("btnExportVocab")?.addEventListener("click", async ()=>{
-  const mode = $("#vocabMode")?.value || "es";
-  const txt  = exportVocabSimple(state.vocab, mode);
-  await copyTextOrDownload(`vocab_${mode}.txt`, txt);
-});
 
 // ==== Bootstrap ====
 function bootstrap(){
   loadLocal(); updateTemaSelects(); renderList(); renderVocab(); setupUI();
   syncFromRTDB();
 }
-document.addEventListener("DOMContentLoaded", bootstrap); 
- 
+document.addEventListener("DOMContentLoaded", bootstrap);
