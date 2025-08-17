@@ -2,7 +2,8 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#0f1115" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -13,6 +14,14 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title>Deutsch Coach — Frases & Repaso</title>
   <link rel="stylesheet" href="app.css" />
+  <!-- Firebase compat (no ESM) -->
+<!-- … head igual … -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script> <!-- ← AÑADIDO -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
+<!-- … resto igual … -->
+
 </head>
 <body>
   <div id="app">
@@ -28,33 +37,17 @@
         <button data-tab="repaso" class="tab">Repaso</button>
       </section>
 
-      <section id="tab-import" class="panel active">
-        <div class="card">
-          <h2>Importar frases del chat</h2>
-          <p class="hint">Formato <b>DLF</b> por línea.</p>
-          <pre class="sample">
-[ALE] Zwei Tickets, bitte. | [CH] Zwei Billet, bitte. | [PRON] tsvai tíkets, bíte | [ES] Dos billetes, por favor. | [TEMA] Transporte | [VAR] Ein Ticket, bitte. / Drei Tickets, bitte. | [ESTADO] nuevo | [DIFIC] fácil
-          </pre>
-          <textarea id="importText" rows="8" placeholder="[ALE] ... | [CH] ... | [PRON] ... | [ES] ... | [TEMA] ... | [VAR] ... | [ESTADO] ... | [DIFIC] ..."></textarea>
-          <div class="row">
-            <select id="defaultTema"><option value="">Tema (por defecto)</option></select>
-            <select id="defaultEstado">
-              <option value="">Estado (por defecto)</option>
-              <option>nuevo</option><option>practicada</option><option>repasada</option><option>difícil</option>
-            </select>
-            <select id="defaultDificultad">
-              <option value="">Dificultad (por defecto)</option>
-              <option>fácil</option><option>normal</option><option>difícil</option><option>útil</option>
-            </select>
-          </div>
-          <div class="row">
-            <button id="btnParse" class="primary">Previsualizar</button>
-            <button id="btnImport" class="success" disabled>Guardar</button>
-            <button id="btnClearInput" class="ghost">Limpiar</button>
-          </div>
-          <div id="preview" class="list"></div>
-        </div>
-      </section>
+<section id="tab-import" class="panel active">
+  <div class="card">
+    <h2>Importar frases del chat</h2>
+    <textarea id="importText" rows="8" placeholder="[ALE] ... | [CH] ... | [PRON] ... | [PRON-CH] ... | [ES] ... | [TEMA] ... | [VAR] ... | [ESTADO] ... | [DIFIC] ... | [TIPO] ..."></textarea>
+    <div class="row">
+      <button id="btnImport" class="primary">Guardar</button>
+      <button id="btnClearInput" class="ghost">Limpiar</button>
+    </div>
+  </div>
+</section>
+
 
       <section id="tab-frases" class="panel">
         <div class="card">
@@ -91,10 +84,8 @@
                 <button id="btnNext" class="ghost">Siguiente</button>
               </div>
               <div id="quizReveal" class="reveal hidden">
-                <div class="row2">
-                  <div><b>🇨🇭 Suizo:</b> <span id="quizCh">—</span></div>
-                  <div><b>🔊 Pron:</b> <span id="quizPron">—</span></div>
-                </div>
+                <div class="row2"><b>🔊 Pron:</b> <span id="quizPron">—</span></div>
+                <div class="row2"><b>🇨🇭 Suizo:</b> <span id="quizCh">—</span></div>
                 <div><b>🇪🇸 ES:</b> <span id="quizEs">—</span></div>
                 <div class="row2">
                   <button data-mark="practicada" class="mark">Practicada</button>
@@ -112,7 +103,6 @@
     <dialog id="settingsDlg" class="settings">
       <form method="dialog">
         <h3>Ajustes</h3>
-
         <details open>
           <summary>PWA</summary>
           <p class="hint">Instálala desde el navegador para uso offline.</p>
@@ -140,14 +130,19 @@
   </div>
 
   <!-- App -->
-  <script type="module" src="app.js"></script>
+  <script src="app.js"></script>
 
-  <!-- SW register -->
+  <!-- SW + anti-doble-tap -->
   <script>
+    let __lt = 0;
+    document.addEventListener('touchend', (e)=>{
+      const t = Date.now();
+      if (t - __lt < 350) { e.preventDefault(); return; }
+      __lt = t;
+    }, {passive:false});
+
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js').catch(console.error);
-      });
+      addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(console.error));
     }
   </script>
 </body>
