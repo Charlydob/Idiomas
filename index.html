@@ -30,99 +30,74 @@
       <button id="btnSettings" class="icon-btn" title="Ajustes">⚙️</button>
     </header>
 
-    <main class="screen">
-      <section class="tabs">
-        <button data-tab="import" class="tab active">Importar</button>
-        <button data-tab="frases" class="tab">Frases</button>
-        <button data-tab="repaso" class="tab">Repaso</button>
-      </section>
+<!-- ...head y resto igual... -->
 
-<section id="tab-import" class="panel active">
-  <div class="card">
-    <h2>Importar frases del chat</h2>
-    <textarea id="importText" rows="8" placeholder="[ALE] ... | [CH] ... | [PRON] ... | [PRON-CH] ... | [ES] ... | [TEMA] ... | [VAR] ... | [ESTADO] ... | [DIFIC] ... | [TIPO] ..."></textarea>
-    <div class="row">
-      <button id="btnImport" class="primary">Guardar</button>
-      <button id="btnClearInput" class="ghost">Limpiar</button>
+<main class="screen">
+  <section class="tabs">
+    <button data-tab="import" class="tab active">Importar</button>
+    <button data-tab="frases" class="tab">Frases</button>
+    <!-- NUEVO -->
+    <button data-tab="vocab" class="tab">Vocab</button>
+    <button data-tab="repaso" class="tab">Repaso</button>
+  </section>
+
+  <!-- IMPORTAR (sin previsualizar) -->
+  <section id="tab-import" class="panel active">
+    <div class="card">
+      <h2>Importar frases del chat</h2>
+      <textarea id="importText" rows="8"
+        placeholder="[ALE] ... | [CH] ... | [PRON] ... | [PRON-CH] ... | [ES] ... | [TEMA] ... | [VAR] ... | [ESTADO] ... | [DIFIC] ... | [TIPO] ... | [VOC] agua:Wasser / pan:Brot"></textarea>
+      <div class="row">
+        <button id="btnImport" class="primary">Guardar</button>
+        <button id="btnClearInput" class="ghost">Limpiar</button>
+      </div>
     </div>
-  </div>
-</section>
+  </section>
 
+  <!-- FRASES -->
+  <section id="tab-frases" class="panel">
+    <div class="card">
+      <div class="filters">
+        <input id="q" type="search" placeholder="Buscar… (DE/ES/CH/pron)" />
+        <select id="fTema"><option value="">Tema</option></select>
+        <select id="fEstado"><option value="">Estado</option><option>nuevo</option><option>practicada</option><option>repasada</option><option>difícil</option></select>
+        <select id="fDificultad"><option value="">Dificultad</option><option>fácil</option><option>normal</option><option>difícil</option><option>útil</option></select>
+        <select id="fTipo"><option value="">Tipo</option><option>afirmación</option><option>pregunta</option><option>negación</option><option>saludo</option><option>petición</option></select>
+      </div>
+      <div >
+        <!-- NUEVO: exportación simple (DLF directo al portapapeles, sin avisos) -->
+        <button id="btnExportSimpleDLF" >Exportar (simple)</button>
 
-      <section id="tab-frases" class="panel">
-        <div class="card">
-          <div class="filters">
-            <input id="q" type="search" placeholder="Buscar… (alemán/español/suizo/pron)" />
-            <select id="fTema"><option value="">Tema</option></select>
-            <select id="fEstado"><option value="">Estado</option><option>nuevo</option><option>practicada</option><option>repasada</option><option>difícil</option></select>
-            <select id="fDificultad"><option value="">Dificultad</option><option>fácil</option><option>normal</option><option>difícil</option><option>útil</option></select>
-            <select id="fTipo"><option value="">Tipo</option><option>afirmación</option><option>pregunta</option><option>negación</option></select>
-          </div>
+      </div>
+      <div id="phraseList" class="list"></div>
+    </div>
+  </section>
 
-          <div id="phraseList" class="list"></div>
-        </div>
-      </section>
+  <!-- NUEVO: VOCABULARIO -->
+  <section id="tab-vocab" class="panel">
+    <div class="card">
+      <div class="row">
+        <select id="vocabMode">
+          <option value="es">Vista ES→DE</option>
+          <option value="de">Vista DE→ES</option>
+        </select>
+        <button id="btnExportVocab" class="ghost">Exportar vocab</button>
+      </div>
+      <div id="vocabList" class="list"></div>
+    </div>
+  </section>
 
-      <section id="tab-repaso" class="panel">
-        <div class="card">
-          <div class="row">
-            <select id="rTema"><option value="">Tema</option></select>
-            <select id="rEstado"><option value="">Estado</option><option>nuevo</option><option>practicada</option><option>repasada</option><option>difícil</option></select>
-            <button id="btnStartQuiz" class="primary">Iniciar repaso</button>
-          </div>
+  <!-- REPASO igual -->
+</main>
 
-          <div id="quiz" class="quiz hidden">
-            <div class="quiz-card">
-              <div class="pill" id="quizTema">Tema</div>
-              <div class="ale" id="quizAle">—</div>
-              <div class="controls">
-                <button id="btnReveal" class="primary">Mostrar</button>
-                <button id="btnNext" class="ghost">Siguiente</button>
-              </div>
-              <div id="quizReveal" class="reveal hidden">
-                <div class="row2"><b>🔊 Pron:</b> <span id="quizPron">—</span></div>
-                <div class="row2"><b>🇨🇭 Suizo:</b> <span id="quizCh">—</span></div>
-                <div><b>🇪🇸 ES:</b> <span id="quizEs">—</span></div>
-                <div class="row2">
-                  <button data-mark="practicada" class="mark">Practicada</button>
-                  <button data-mark="repasada" class="mark">Repasada</button>
-                  <button data-mark="difícil" class="mark warn">Difícil</button>
-                </div>
-              </div>
-            </div>
-          </div>
+<footer class="bottombar">
+  <button data-tab="import" class="tablink active">📥</button>
+  <button data-tab="frases" class="tablink">📚</button>
+  <!-- NUEVO -->
+  <button data-tab="vocab" class="tablink">🗂️</button>
+  <button data-tab="repaso" class="tablink">🧠</button>
+</footer>
 
-        </div>
-      </section>
-    </main>
-
-    <dialog id="settingsDlg" class="settings">
-      <form method="dialog">
-        <h3>Ajustes</h3>
-        <details open>
-          <summary>PWA</summary>
-          <p class="hint">Instálala desde el navegador para uso offline.</p>
-          <pre id="fbInfo" class="sample small"></pre>
-        </details>
-
-        <details>
-          <summary>Temas</summary>
-          <div id="temaManager" class="chiprow"></div>
-          <div class="row">
-            <input id="temaNew" placeholder="Nuevo tema…" />
-            <button id="btnAddTema" class="ghost">Añadir</button>
-          </div>
-        </details>
-
-        <menu><button value="cancel" class="ghost">Cerrar</button></menu>
-      </form>
-    </dialog>
-
-    <footer class="bottombar">
-      <button data-tab="import" class="tablink active">📥</button>
-      <button data-tab="frases" class="tablink">📚</button>
-      <button data-tab="repaso" class="tablink">🧠</button>
-    </footer>
   </div>
 
   <!-- App -->
