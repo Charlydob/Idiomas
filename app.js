@@ -29,7 +29,7 @@ const $ = (sel, ctx=document)=>ctx.querySelector(sel);
 const $$= (sel, ctx=document)=>Array.from(ctx.querySelectorAll(sel));
 
 const state = {
-  phrases: [],   // {id, ale, ch, pron, es, tema, variaciones[], estado, dificultad, tipo, createdAt, audioUrl?}
+  phrases: [],
   temas: [],
   quizPool: [],
   quizIdx: 0
@@ -91,7 +91,7 @@ function parseDLF(text, defaults={}){
 
 // === Render helpers ===
 function updateTemaSelects(){
-  const selects = ["#defaultTema","#fTema","#rTema"].map(id=>$(id));
+  const selects = ["#defaultTema","#fTema","#rTema"].map(id=>$(id)).filter(Boolean);
   for(const sel of selects){
     const current = sel.value;
     sel.innerHTML = `<option value="">Tema</option>${state.temas.map(t=>`<option>${t}</option>`).join("")}`;
@@ -204,8 +204,12 @@ async function persist(p){
   saveLocal();
   try{
     await setDoc(doc(db, PHRASES_COL, p.id), p);
-  }catch(e){ console.warn("FS setDoc", e); }
+  }catch(e){
+    console.error("FS setDoc", e);
+    alert("No se pudo guardar en Firestore: " + (e.code || e.message || e));
+  }
 }
+
 
 async function delPhrase(id){
   state.phrases = state.phrases.filter(x=>x.id!==id);
@@ -229,7 +233,7 @@ function exportDLF(arr){
     if(p.estado) parts.push(`[ESTADO] ${p.estado}`);
     if(p.dificultad) parts.push(`[DIFIC] ${p.dificultad}`);
     if(p.tipo) parts.push(`[TIPO] ${p.tipo}`);
-    return parts.join(" | ");
+    return parts.join("\n");
   });
   return lines.join("\n");
 }
@@ -278,15 +282,8 @@ async function recordAudioFor(p){
 }
 
 // === UI / filtros / import ===
-function updateTemaSelects(){
-  const selects = ["#defaultTema","#fTema","#rTema"].map(id=>$(id));
-  for(const sel of selects){
-    const current = sel.value;
-    sel.innerHTML = `<option value="">Tema</option>${state.temas.map(t=>`<option>${t}</option>`).join("")}`;
-    if(current) sel.value = current;
-  }
-}
 function setupUI(){
+  // Tabs (top ocultas + bottom visibles)
   $$(".tab, .tablink").forEach(btn=>{
     btn.addEventListener("click", ()=>{
       const tab = btn.dataset.tab;
@@ -295,16 +292,25 @@ function setupUI(){
     });
   });
 
-  $("#btnSettings").addEventListener("click", ()=>{
-    $("#fbInfo").textContent = JSON.stringify({
-      projectId: firebaseConfig.projectId,
-      storageBucket: firebaseConfig.storageBucket
-    }, null, 2);
-    $("#settingsDlg").showModal();
-  });
+  // Ajustes
+  const btnSettings = $("#btnSettings");
+  if(btnSettings){
+    btnSettings.addEventListener("click", ()=>{
+      const fbInfo = $("#fbInfo");
+      if(fbInfo){
+        fbInfo.textContent = JSON.stringify({
+          projectId: firebaseConfig.projectId,
+          storageBucket: firebaseConfig.storageBucket
+        }, null, 2);
+      }
+      $("#settingsDlg").showModal();
+    });
+  }
 
+  // Temas (opcional si existen nodos)
   function redrawTemas(){
-    const c = $("#temaManager"); c.innerHTML = "";
+    const c = $("#temaManager"); if(!c) return;
+    c.innerHTML = "";
     for(const t of state.temas){
       const chip = document.createElement("div");
       chip.className = "chip"; chip.textContent = t;
@@ -319,14 +325,18 @@ function setupUI(){
     }
     updateTemaSelects();
   }
-  $("#btnAddTema").addEventListener("click",(e)=>{
-    e.preventDefault();
-    const v = normalize($("#temaNew").value);
-    if(!v) return;
-    if(!state.temas.includes(v)) state.temas.push(v);
-    $("#temaNew").value="";
-    saveLocal(); redrawTemas();
-  });
+  const btnAddTema = $("#btnAddTema");
+  if(btnAddTema){
+    btnAddTema.addEventListener("click",(e)=>{
+      e.preventDefault();
+      const inp = $("#temaNew");
+      const v = normalize(inp?.value);
+      if(!v) return;
+      if(!state.temas.includes(v)) state.temas.push(v);
+      if(inp) inp.value="";
+      saveLocal(); redrawTemas();
+    });
+  }
 
   let previewItems = [];
   $("#btnParse").addEventListener("click", ()=>{
@@ -346,23 +356,36 @@ function setupUI(){
     $("#btnImport").disabled = false;
   });
 
-  $("#btnImport").addEventListener("click", async ()=>{
-    if(!previewItems.length) return;
-    const map = new Map(state.phrases.map(p=>[p.id,p]));
-    for(const it of previewItems) map.set(it.id, it);
-    state.phrases = Array.from(map.values());
-    saveLocal();
-    // subir en lote (secuencial simple)
-    for(const it of previewItems){
-      try{ await setDoc(doc(db, PHRASES_COL, it.id), it); }catch(e){ console.warn(e); }
+$("#btnImport").addEventListener("click", async ()=>{
+  if(!previewItems.length) return;
+
+  // Fusiona con local
+  const map = new Map(state.phrases.map(p=>[p.id,p]));
+  for(const it of previewItems) map.set(it.id, it);
+  state.phrases = Array.from(map.values());
+  saveLocal();
+
+  // === Guardado en Firestore con errores a la vista ===
+  let ok = 0, fail = 0;
+  for (const it of previewItems) {
+    try {
+      await setDoc(doc(db, PHRASES_COL, it.id), it);
+      ok++;
+    } catch (e) {
+      console.error("Error guardando", it, e);
+      fail++;
+      alert("Error guardando: " + (it.ale || it.es) + "\n" + (e.code || e.message || e));
     }
-    previewItems = [];
-    renderPreview(previewItems);
-    $("#btnImport").disabled = true;
-    $("#importText").value = "";
-    renderList();
-    toast("Frases importadas.");
-  });
+  }
+
+  previewItems = [];
+  renderPreview(previewItems);
+  $("#btnImport").disabled = true;
+  $("#importText").value = "";
+  renderList();
+  toast(`Importación completada. OK: ${ok} · Fallos: ${fail}`);
+});
+
 
   $("#btnClearInput").addEventListener("click", ()=> $("#importText").value="");
 

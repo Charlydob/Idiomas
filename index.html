@@ -112,10 +112,22 @@
     <dialog id="settingsDlg" class="settings">
       <form method="dialog">
         <h3>Ajustes</h3>
+
         <details open>
           <summary>PWA</summary>
           <p class="hint">Instálala desde el navegador para uso offline.</p>
+          <pre id="fbInfo" class="sample small"></pre>
         </details>
+
+        <details>
+          <summary>Temas</summary>
+          <div id="temaManager" class="chiprow"></div>
+          <div class="row">
+            <input id="temaNew" placeholder="Nuevo tema…" />
+            <button id="btnAddTema" class="ghost">Añadir</button>
+          </div>
+        </details>
+
         <menu><button value="cancel" class="ghost">Cerrar</button></menu>
       </form>
     </dialog>
@@ -134,8 +146,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js')
-          .catch(console.error);
+        navigator.serviceWorker.register('./sw.js').catch(console.error);
       });
     }
   </script>
