@@ -441,16 +441,9 @@ function setupUI(){
     el.addEventListener("change",renderList);
   });
 
- // Export PipeDict v1
+ // Export PipeDict v1 (frases) → portapapeles
 $("#btnExportVocab")?.addEventListener("click", ()=>{
   const txt = exportPipeDict(state.phrases);
-  navigator.clipboard?.writeText(txt).catch(console.warn);
-});
-
-// Export vocab simple
-$("#btnExportSimple")?.addEventListener("click", ()=>{
-  const mode = $("#vocabMode")?.value || "es";
-  const txt = exportVocabSimple(state.vocab, mode);
   navigator.clipboard?.writeText(txt).catch(console.warn);
 });
 
