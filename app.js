@@ -97,6 +97,8 @@ function guessTags(originalToken, lower){
   if(PRON_SET.has(lower)) tags.push("pronombre");
   if(PREP_SET.has(lower)) tags.push("preposición");
   if(ADV_SET.has(lower))  tags.push("adverbio");
+    if(ADV_SET.has(lower))  tags.push("adjetivo");
+
   if(COURTESY_SET.has(lower)) tags.push("cortesía");
   if(!tags.length && /[a-zäöüß\-]{3,}en$/.test(lower)) tags.push("verbo"); // infinitivo aprox
   if(!tags.length && /^[A-ZÄÖÜ]/.test(originalToken)) tags.push("sustantivo"); // heurística
@@ -248,7 +250,7 @@ function ensureVocabDialog(){
         <input id="vocabTema" placeholder="Tema" />
       </div>
       <div class="chiprow" style="gap:6px; margin:8px 0" id="vocabTagPicker">
-        ${["sustantivo","verbo","determinante","pronombre","preposición","adverbio","cortesía","otro"].map(t=>`
+        ${["sustantivo","verbo","determinante","pronombre","preposición","adverbio", "adjetivo","cortesía","otro"].map(t=>`
           <button type="button" class="chip" data-tag="${t}">${t}</button>
         `).join("")}
       </div>
