@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f1115" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Deutsch Coach" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="icon" sizes="512x512" href="icons/icon-512.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <title>Deutsch Coach — Frases & Repaso</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">Deutsch Coach</div>
+      <button id="btnSettings" class="icon-btn" title="Ajustes">⚙️</button>
+    </header>
+
+    <main class="screen">
+      <section class="tabs">
+        <button data-tab="import" class="tab active">Importar</button>
+        <button data-tab="frases" class="tab">Frases</button>
+        <button data-tab="repaso" class="tab">Repaso</button>
+      </section>
+
+      <section id="tab-import" class="panel active">
+        <div class="card">
+          <h2>Importar frases del chat</h2>
+          <p class="hint">Formato <b>DLF</b> por línea.</p>
+          <pre class="sample">
+[ALE] Zwei Tickets, bitte. | [CH] Zwei Billet, bitte. | [PRON] tsvai tíkets, bíte | [ES] Dos billetes, por favor. | [TEMA] Transporte | [VAR] Ein Ticket, bitte. / Drei Tickets, bitte. | [ESTADO] nuevo | [DIFIC] fácil
+          </pre>
+          <textarea id="importText" rows="8" placeholder="[ALE] ... | [CH] ... | [PRON] ... | [ES] ... | [TEMA] ... | [VAR] ... | [ESTADO] ... | [DIFIC] ..."></textarea>
+          <div class="row">
+            <select id="defaultTema"><option value="">Tema (por defecto)</option></select>
+            <select id="defaultEstado">
+              <option value="">Estado (por defecto)</option>
+              <option>nuevo</option><option>practicada</option><option>repasada</option><option>difícil</option>
+            </select>
+            <select id="defaultDificultad">
+              <option value="">Dificultad (por defecto)</option>
+              <option>fácil</option><option>normal</option><option>difícil</option><option>útil</option>
+            </select>
+          </div>
+          <div class="row">
+            <button id="btnParse" class="primary">Previsualizar</button>
+            <button id="btnImport" class="success" disabled>Guardar</button>
+            <button id="btnClearInput" class="ghost">Limpiar</button>
+          </div>
+          <div id="preview" class="list"></div>
+        </div>
+      </section>
+
+      <section id="tab-frases" class="panel">
+        <div class="card">
+          <div class="filters">
+            <input id="q" type="search" placeholder="Buscar… (alemán/español/suizo/pron)" />
+            <select id="fTema"><option value="">Tema</option></select>
+            <select id="fEstado"><option value="">Estado</option><option>nuevo</option><option>practicada</option><option>repasada</option><option>difícil</option></select>
+            <select id="fDificultad"><option value="">Dificultad</option><option>fácil</option><option>normal</option><option>difícil</option><option>útil</option></select>
+            <select id="fTipo"><option value="">Tipo</option><option>afirmación</option><option>pregunta</option><option>negación</option></select>
+          </div>
+          <div class="row stick">
+            <button id="btnExportDLF" class="ghost">Exportar DLF</button>
+            <button id="btnExportJSON" class="ghost">Exportar JSON</button>
+            <button id="btnAddQuick" class="ghost">Añadir rápida</button>
+          </div>
+          <div id="phraseList" class="list"></div>
+        </div>
+      </section>
+
+      <section id="tab-repaso" class="panel">
+        <div class="card">
+          <div class="row">
+            <select id="rTema"><option value="">Tema</option></select>
+            <select id="rEstado"><option value="">Estado</option><option>nuevo</option><option>practicada</option><option>repasada</option><option>difícil</option></select>
+            <button id="btnStartQuiz" class="primary">Iniciar repaso</button>
+          </div>
+
+          <div id="quiz" class="quiz hidden">
+            <div class="quiz-card">
+              <div class="pill" id="quizTema">Tema</div>
+              <div class="ale" id="quizAle">—</div>
+              <div class="controls">
+                <button id="btnReveal" class="primary">Mostrar</button>
+                <button id="btnNext" class="ghost">Siguiente</button>
+              </div>
+              <div id="quizReveal" class="reveal hidden">
+                <div class="row2">
+                  <div><b>🇨🇭 Suizo:</b> <span id="quizCh">—</span></div>
+                  <div><b>🔊 Pron:</b> <span id="quizPron">—</span></div>
+                </div>
+                <div><b>🇪🇸 ES:</b> <span id="quizEs">—</span></div>
+                <div class="row2">
+                  <button data-mark="practicada" class="mark">Practicada</button>
+                  <button data-mark="repasada" class="mark">Repasada</button>
+                  <button data-mark="difícil" class="mark warn">Difícil</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+    </main>
+
+    <dialog id="settingsDlg" class="settings">
+      <form method="dialog">
+        <h3>Ajustes</h3>
+        <details open>
+          <summary>PWA</summary>
+          <p class="hint">Instálala desde el navegador para uso offline.</p>
+        </details>
+        <menu><button value="cancel" class="ghost">Cerrar</button></menu>
+      </form>
+    </dialog>
+
+    <footer class="bottombar">
+      <button data-tab="import" class="tablink active">📥</button>
+      <button data-tab="frases" class="tablink">📚</button>
+      <button data-tab="repaso" class="tablink">🧠</button>
+    </footer>
+  </div>
+
+  <!-- App -->
+  <script type="module" src="app.js"></script>
+
+  <!-- SW register -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .catch(console.error);
+      });
+    }
+  </script>
+</body>
+</html>
