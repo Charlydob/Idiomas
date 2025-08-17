@@ -213,25 +213,31 @@ function renderCard(p){
     </div>
   `;
 }
+// ==== renderList (MODIFICADA: orden alfabético por DE siempre) ====
 function renderList(){
   const q=(normalize($("#q")?.value)).toLowerCase();
   const tema=$("#fTema")?.value, est=$("#fEstado")?.value, dif=$("#fDificultad")?.value, tipo=$("#fTipo")?.value;
-  let arr=state.phrases.slice().sort((a,b)=>(a.tema||"").localeCompare(b.tema||"")||(a.ale||"").localeCompare(b.ale||""));
-  if(q) arr=arr.filter(p=>[p.ale,p.es,p.ch,p.pron,p.pronCh,(p.variaciones||[]).join(" ")].join(" ").toLowerCase().includes(q));
-  if(tema) arr=arr.filter(p=>p.tema===tema);
-  if(est) arr=arr.filter(p=>p.estado===est);
-  if(dif) arr=arr.filter(p=>p.dificultad===dif);
-  if(tipo) arr=arr.filter(p=>p.tipo===tipo);
+
+  let arr = state.phrases.slice();
+  if(q)   arr = arr.filter(p=>[p.ale,p.es,p.ch,p.pron,p.pronCh,(p.variaciones||[]).join(" ")].join(" ").toLowerCase().includes(q));
+  if(tema)arr = arr.filter(p=>p.tema===tema);
+  if(est) arr = arr.filter(p=>p.estado===est);
+  if(dif) arr = arr.filter(p=>p.dificultad===dif);
+  if(tipo)arr = arr.filter(p=>p.tipo===tipo);
+
+  // ordenar por alemán (DE) independientemente de filtros
+  arr.sort((a,b)=> (a.ale||"").localeCompare(b.ale||"", "de", {sensitivity:"base"}));
 
   const list=$("#phraseList"); if(!list) return;
   list.innerHTML = arr.map(renderCard).join("");
 
   $$("#phraseList .card-item").forEach(item=>{
     const id=item.dataset.id; const p=state.phrases.find(x=>x.id===id);
-    item.querySelector(".btn-del").addEventListener("click", (e)=>{ e.stopPropagation(); delPhrase(id); }); // sin confirmación
+    item.querySelector(".btn-del").addEventListener("click", (e)=>{ e.stopPropagation(); delPhrase(id); });
     item.querySelector(".btn-edit").addEventListener("click", (e)=>{ e.stopPropagation(); quickEdit(p); });
   });
 }
+
 
 // ==== Vocab: UI + modal detalle + editar/borrar (sin confirm) ====
 function ensureVocabDialog(){
@@ -302,14 +308,15 @@ async function openVocabModal(item){
     dlg.close();
   };
 }
+// ==== renderVocab (MODIFICADA: orden alfabético por DE siempre) ====
 function renderVocab(){
-  const mode = state.vocabMode; // "es" o "de"
+  const mode = state.vocabMode; // "es" o "de" (solo afecta cabeceras, no el orden)
   const list = $("#vocabList"); if(!list) return;
-  const data = state.vocab.slice().sort((a,b)=>{
-    const ta = (a.tema||"").localeCompare(b.tema||"");
-    if(ta!==0) return ta;
-    return (mode==="es" ? (a.es||a.de||"").localeCompare(b.es||b.de||"") : (a.de||a.es||"").localeCompare(b.de||b.es||""));
-  });
+  let data = state.vocab.slice();
+
+  // ordenar SIEMPRE por alemán (de)
+  data.sort((a,b)=> (a.de||"").localeCompare(b.de||"", "de", {sensitivity:"base"}));
+
   list.innerHTML = data.map(v=>{
     const head = mode==="es" ? (v.es || v.de || "—") : (v.de || v.es || "—");
     const tail = mode==="es" ? (v.de || "(DE pendiente)") : (v.es || "(ES pendiente)");
@@ -341,13 +348,14 @@ function renderVocab(){
     el.querySelector(".btn-v-edit").addEventListener("click", (e)=>{ e.stopPropagation(); openVocabModal(item); });
     el.querySelector(".btn-v-del").addEventListener("click", async (e)=>{ 
       e.stopPropagation();
-      await delVocab(id);   // sin confirmación
+      await delVocab(id);
       renderVocab();
     });
   });
 }
 
-// ==== RTDB sync ====
+
+// ==== RTDB sync (MODIFICADA: añade sort) ====
 async function syncFromRTDB(){
   try{
     const snapP = await DB.ref(PHRASES_PATH).get();
@@ -356,27 +364,32 @@ async function syncFromRTDB(){
     for(const p of cloudP) map.set(p.id,p);
     state.phrases = Array.from(map.values());
     for(const p of state.phrases){ if(p.tema && !state.temas.includes(p.tema)) state.temas.push(p.tema); }
+    sortPhrases();
 
     const snapV = await DB.ref(VOCAB_PATH).get();
     const cloudV = Object.values(snapV.val()||{});
     const vmap = new Map(state.vocab.map(v=>[v.id,v]));
     for(const v of cloudV) vmap.set(v.id,v);
     state.vocab = Array.from(vmap.values());
+    sortVocab();
 
     saveLocal(); updateTemaSelects(); renderList(); renderVocab();
   }catch(e){ console.warn("RTDB sync error", e); }
 }
 
+
 // ==== Persistencia ====
 async function persistPhrase(p){
   const i=state.phrases.findIndex(x=>x.id===p.id);
   if(i>=0) state.phrases[i]=p; else state.phrases.push(p);
+  sortPhrases();
   saveLocal();
   try{ await DB.ref(`${PHRASES_PATH}/${p.id}`).set(p); }catch(e){ console.error("RTDB set phrase", e); }
 }
 async function persistVocab(v){
   const i=state.vocab.findIndex(x=>x.id===v.id);
   if(i>=0) state.vocab[i]=v; else state.vocab.push(v);
+  sortVocab();
   saveLocal();
   try{ await DB.ref(`${VOCAB_PATH}/${v.id}`).set(v); }catch(e){ console.error("RTDB set vocab", e); }
 }
@@ -404,6 +417,17 @@ function quickEdit(p){
     variaciones:(vari||"").split("/").map(s=>s.trim()).filter(Boolean)
   });
   persistPhrase(p); renderList();
+}
+// === NUEVO: helpers de ordenación alfabética ===
+function sortPhrases(){
+  state.phrases.sort((a,b)=>
+    (a.ale||"").localeCompare(b.ale||"", "de", {sensitivity:"base"})
+  );
+}
+function sortVocab(){
+  state.vocab.sort((a,b)=>
+    (a.de||"").localeCompare(b.de||"", "de", {sensitivity:"base"})
+  );
 }
 
 // ==== Exportaciones ====
@@ -449,36 +473,34 @@ function setupUI(){
   });
 
   // Importar directo (frases + vocab manual + auto-vocab + autotraducción ES)
-  $("#btnImport")?.addEventListener("click", async ()=>{
-    const txt = $("#importText")?.value || "";
-    const { phrases, vocab } = parseDLF(txt);
-    if(!phrases.length && !vocab.length) return;
+$("#btnImport")?.addEventListener("click", async ()=>{
+  const txt = $("#importText")?.value || "";
+  const { phrases, vocab } = parseDLF(txt);
+  if(!phrases.length && !vocab.length) return;
 
-    const autoVocab = extractVocabFromPhrases(phrases);
-    fillVocabEsFromPhrases(phrases, autoVocab); // autocompleta ES cuando sea posible
+  const autoVocab = extractVocabFromPhrases(phrases);
+  fillVocabEsFromPhrases(phrases, autoVocab);
 
-    // Temas nuevos
-    for(const it of phrases){ if(it.tema && !state.temas.includes(it.tema)) state.temas.push(it.tema); }
-    saveLocal(); updateTemaSelects();
+  for(const it of phrases){ if(it.tema && !state.temas.includes(it.tema)) state.temas.push(it.tema); }
+  saveLocal(); updateTemaSelects();
 
-    // Merge frases (local)
-    const pmap=new Map(state.phrases.map(p=>[p.id,p]));
-    for(const it of phrases) pmap.set(it.id,it);
-    state.phrases = Array.from(pmap.values());
+  const pmap=new Map(state.phrases.map(p=>[p.id,p]));
+  for(const it of phrases) pmap.set(it.id,it);
+  state.phrases = Array.from(pmap.values());
+  sortPhrases();
 
-    // Merge vocab (local) manual + auto
-    const vmap=new Map(state.vocab.map(v=>[v.id,v]));
-    for(const v of [...vocab, ...autoVocab]) vmap.set(v.id, Object.assign({etiquetas:[]}, v));
-    state.vocab = Array.from(vmap.values());
+  const vmap=new Map(state.vocab.map(v=>[v.id,v]));
+  for(const v of [...vocab, ...autoVocab]) vmap.set(v.id, Object.assign({etiquetas:[]}, v));
+  state.vocab = Array.from(vmap.values());
+  sortVocab();
 
-    saveLocal(); renderList(); renderVocab();
+  saveLocal(); renderList(); renderVocab();
 
-    // Subir a RTDB
-    for(const it of phrases){ try{ await DB.ref(`${PHRASES_PATH}/${it.id}`).set(it); }catch(e){ console.error("Error frase", it, e); } }
-    for(const v of [...vocab, ...autoVocab]){ try{ await DB.ref(`${VOCAB_PATH}/${v.id}`).set(v); }catch(e){ console.error("Error vocab", v, e); } }
+  for(const it of phrases){ try{ await DB.ref(`${PHRASES_PATH}/${it.id}`).set(it); }catch(e){ console.error("Error frase", it, e); } }
+  for(const v of [...vocab, ...autoVocab]){ try{ await DB.ref(`${VOCAB_PATH}/${v.id}`).set(v); }catch(e){ console.error("Error vocab", v, e); } }
 
-    if($("#importText")) $("#importText").value = ""; // limpiar sin alertas
-  });
+  if($("#importText")) $("#importText").value = "";
+});
 
   $("#btnClearInput")?.addEventListener("click", ()=> $("#importText") && ($("#importText").value=""));
 
