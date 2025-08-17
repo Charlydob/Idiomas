@@ -1,3 +1,4 @@
+
 // ==== Firebase (compat, no ESM) ====
 (function(){
   const firebaseConfig = {
@@ -13,23 +14,45 @@
   window.DB = firebase.database();
   window.AUTH = firebase.auth?.();
 })();
+
+// ==== Constantes ====
 const PHRASES_PATH = "/deutsch_phrases";
 const VOCAB_PATH   = "/deutsch_vocab";
 const DICT_PATH    = "/deutsch_dict";
 
-// ==== Estado / utilidades ====
 const LS_KEY   = "deutsch.phrases.v1";
 const LS_TEMAS = "deutsch.temas.v1";
 const LS_VOCAB = "deutsch.vocab.v1";
 const LS_DICT  = "deutsch.dict.v1";
 const DEFAULT_TEMAS = ["Saludos","Transporte","Direcciones","Compras","Comida","Salud","Trabajo","Escape","Conversación","Emergencias"];
+
+// ==== Helpers / Estado ====
 const $  = (s,c=document)=>c.querySelector(s);
 const $$ = (s,c=document)=>Array.from(c.querySelectorAll(s));
-const state = { phrases:[], temas:[], vocab:[], dict:{}, quizPool:[], quizIdx:0, vocabMode:"es" };
-
-const uid = (s="")=>{ const b=s.normalize("NFKD").toLowerCase(); let h=2166136261>>>0; for(let i=0;i<b.length;i++){ h^=b.charCodeAt(i); h=Math.imul(h,16777619)>>>0;} return "id_"+h.toString(36); };
 const nowISO = ()=>new Date().toISOString();
 const normalize = v=>(v||"").trim();
+const uid = (s="")=>{ const b=s.normalize("NFKD").toLowerCase(); let h=2166136261>>>0; for(let i=0;i<b.length;i++){ h^=b.charCodeAt(i); h=Math.imul(h,16777619)>>>0;} return "id_"+h.toString(36); };
+const debounce=(fn,ms=120)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); } };
+const nextTick=()=>new Promise(r=>setTimeout(r,0));
+
+// Virtual list config
+const VIRT_PAGE = 20; // tarjetas por “página”
+const LOAD_THRESHOLD = 200; // px antes del fondo
+
+const state = {
+  phrases:[],
+  temas:[],
+  vocab:[],
+  dict:{},
+  quizPool:[],
+  quizIdx:0,
+  vocabMode:"es",
+  // render virtualizado
+  _filteredP:[],
+  _renderStart:0,
+  _renderLock:false
+};
+
 const saveLocal = ()=>{
   localStorage.setItem(LS_KEY,   JSON.stringify(state.phrases));
   localStorage.setItem(LS_TEMAS, JSON.stringify(state.temas));
@@ -45,7 +68,7 @@ const loadLocal = ()=>{ try{
 }catch{ state.phrases=[]; state.temas=DEFAULT_TEMAS.slice(); state.vocab=[]; state.dict={}; } };
 
 // ==== Diccionario global (PipeDict v1) ====
-const did = (s)=> uid("d||"+(s||"")).slice(3); // id estable corto
+const did = (s)=> uid("d||"+(s||"")).slice(3);
 const dictGet = (id)=> (state.dict?.[id] ?? "");
 const dictEnsure = (text)=>{
   const t=(text||"").trim(); if(!t) return "";
@@ -59,7 +82,7 @@ async function persistDict(){
 }
 
 // ==== Parser PipeDict v1 ====
-// Línea: a|s|pa|ps|e1,e2(,eN)[|t]  → todos son IDs en DICT
+// Línea: a|s|pa|ps|e1,e2(,eN)[|t]
 function parsePipeDict(text){
   const outP=[]; const outV=[];
   const lines=(text||"").split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
@@ -92,7 +115,7 @@ function parsePipeDict(text){
   return { phrases: outP, vocab: outV };
 }
 
-// ==== Heurísticas (no usadas por PipeDict, se mantienen por compat) ====
+// ==== Heurísticas (compat) ====
 const DET_SET = new Set(["ein","eine","einen","einem","einer","eines","der","die","das","den","dem","des","kein","keine","keinen","keinem","keiner","keines","mein","dein","sein","ihr","unser","euer","ihr","ihr".toLowerCase()]);
 const PRON_SET = new Set(["ich","du","er","sie","es","wir","ihr","sie","mich","dich","ihn","uns","euch","ihnen","mir","dir","ihm","ihr"]);
 const PREP_SET = new Set(["an","auf","aus","bei","mit","nach","seit","von","zu","über","unter","vor","hinter","neben","zwischen","durch","für","gegen","ohne","um","bis","entlang","trotz","während","wegen","ausser","außer","gegenüber","innerhalb","außerhalb"]);
@@ -149,10 +172,11 @@ function renderCard(p){
     </div>
   `;
 }
-function renderList(){
+
+// === Render virtualizado: 20 en 20 ===
+function computeFilteredPhrases(){
   const q=(normalize($("#q")?.value)).toLowerCase();
   const tema=$("#fTema")?.value, est=$("#fEstado")?.value, dif=$("#fDificultad")?.value, tipo=$("#fTipo")?.value;
-
   let arr = state.phrases.slice();
   if(q)   arr = arr.filter(p=>[p.ale,p.es,p.ch,p.pron,p.pronCh,(p.variaciones||[]).join(" ")].join(" ").toLowerCase().includes(q));
   if(tema)arr = arr.filter(p=>p.tema===tema);
@@ -160,15 +184,53 @@ function renderList(){
   if(dif) arr = arr.filter(p=>p.dificultad===dif);
   if(tipo)arr = arr.filter(p=>p.tipo===tipo);
   arr.sort((a,b)=> (a.ale||"").localeCompare(b.ale||"", "de", {sensitivity:"base"}));
-
+  state._filteredP = arr;
+  state._renderStart = 0;
+}
+function renderListInitial(){
   const list=$("#phraseList"); if(!list) return;
-  list.innerHTML = arr.map(renderCard).join("");
-
-  $$("#phraseList .card-item").forEach(item=>{
+  list.innerHTML = "";
+  appendNextPage();
+}
+function bindCardHandlers(root=document){
+  $$("#phraseList .card-item", root).forEach(item=>{
     const id=item.dataset.id; const p=state.phrases.find(x=>x.id===id);
     item.querySelector(".btn-del").addEventListener("click", (e)=>{ e.stopPropagation(); delPhrase(id); });
     item.querySelector(".btn-edit").addEventListener("click", (e)=>{ e.stopPropagation(); quickEdit(p); });
   });
+}
+async function appendNextPage(){
+  if(state._renderLock) return;
+  const list=$("#phraseList"); if(!list) return;
+  const from = state._renderStart;
+  if(from >= state._filteredP.length) return;
+  state._renderLock = true;
+
+  // Slice y render por lotes para no bloquear el hilo
+  const chunk = state._filteredP.slice(from, from + VIRT_PAGE);
+  const frag = document.createElement("div");
+  frag.innerHTML = chunk.map(renderCard).join("");
+  list.append(...Array.from(frag.children));
+  bindCardHandlers(list);
+
+  state._renderStart += chunk.length;
+  state._renderLock = false;
+}
+
+// Observa scroll para cargar más
+function ensureInfiniteScroll(){
+  const list = $("#phraseList"); if(!list) return;
+  const onScroll = ()=>{
+    if(state._renderLock) return;
+    const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < LOAD_THRESHOLD;
+    if(nearBottom) appendNextPage();
+  };
+  // Asegura contenedor scrollable
+  if(getComputedStyle(list).overflowY==="visible") list.style.overflowY="auto";
+  if(!list.dataset._scrollBound){
+    list.addEventListener("scroll", onScroll, {passive:true});
+    list.dataset._scrollBound = "1";
+  }
 }
 
 // ==== Vocab: UI + modal ====
@@ -282,7 +344,24 @@ function renderVocab(){
   });
 }
 
-// ==== RTDB sync ====
+// ==== RTDB: helpers de batch ====
+async function rtdbBatchUpdate(path, entries){ // entries: Array<[id,obj|null]>
+  if(!entries.length) return;
+  const payload = {};
+  for(const [id, obj] of entries){
+    payload[`${path}/${id}`] = obj===null ? null : obj;
+  }
+  try{ await DB.ref().update(payload); }catch(e){ console.error("RTDB batch update", e); }
+}
+async function rtdbChunkedSet(path, items, chunkSize=100){
+  for(let i=0;i<items.length;i+=chunkSize){
+    const slice = items.slice(i,i+chunkSize).map(it=>[it.id, it]);
+    await rtdbBatchUpdate(path, slice);
+    await nextTick(); // cede al UI en imports masivos
+  }
+}
+
+// ==== Sync desde RTDB ====
 async function syncFromRTDB(){
   try{
     const [snapP, snapV, snapD] = await Promise.all([
@@ -306,36 +385,71 @@ async function syncFromRTDB(){
 
     state.dict = Object.assign({}, state.dict, (snapD.val()||{}));
 
-    saveLocal(); updateTemaSelects(); renderList(); renderVocab();
+    saveLocal();
+    updateTemaSelects();
+    computeFilteredPhrases();
+    renderListInitial();
+    ensureInfiniteScroll();
+    renderVocab();
   }catch(e){ console.warn("RTDB sync error", e); }
 }
 
-// ==== Persistencia ====
+// ==== Persistencia (con batch queue) ====
+let _pendingPhrases = new Map();
+let _pendingVocab   = new Map();
+let _flushTimer = null;
+
+function scheduleFlush(){
+  if(_flushTimer) return;
+  _flushTimer = setTimeout(async ()=>{
+    const pArr = Array.from(_pendingPhrases.values());
+    const vArr = Array.from(_pendingVocab.values());
+    _pendingPhrases.clear();
+    _pendingVocab.clear();
+    _flushTimer = null;
+    if(pArr.length) await rtdbChunkedSet(PHRASES_PATH, pArr, 150);
+    if(vArr.length) await rtdbChunkedSet(VOCAB_PATH, vArr, 150);
+  }, 200); // agrupa escrituras
+}
+
 async function persistPhrase(p){
   const i=state.phrases.findIndex(x=>x.id===p.id);
   if(i>=0) state.phrases[i]=p; else state.phrases.push(p);
   sortPhrases();
   saveLocal();
-  try{ await DB.ref(`${PHRASES_PATH}/${p.id}`).set(p); }catch(e){ console.error("RTDB set phrase", e); }
+
+  _pendingPhrases.set(p.id, p);
+  scheduleFlush();
+
+  // refresco parcial si está visible
+  computeFilteredPhrases();
+  $("#phraseList") && ( $("#phraseList").innerHTML="", state._renderStart=0, appendNextPage() );
 }
 async function persistVocab(v){
   const i=state.vocab.findIndex(x=>x.id===v.id);
   if(i>=0) state.vocab[i]=v; else state.vocab.push(v);
   sortVocab();
   saveLocal();
-  try{ await DB.ref(`${VOCAB_PATH}/${v.id}`).set(v); }catch(e){ console.error("RTDB set vocab", e); }
+
+  _pendingVocab.set(v.id, v);
+  scheduleFlush();
+
+  renderVocab();
 }
 async function delPhrase(id){
   state.phrases=state.phrases.filter(x=>x.id!==id);
   saveLocal();
-  try{ await DB.ref(`${PHRASES_PATH}/${id}`).remove(); }catch(e){ console.warn(e); }
-  renderList();
+  try{ await rtdbBatchUpdate(PHRASES_PATH, [[id,null]]); }catch(e){ console.warn(e); }
+  computeFilteredPhrases();
+  $("#phraseList") && ( $("#phraseList").innerHTML="", state._renderStart=0, appendNextPage() );
 }
 async function delVocab(id){
   state.vocab = state.vocab.filter(x=>x.id!==id);
   saveLocal();
-  try{ await DB.ref(`${VOCAB_PATH}/${id}`).remove(); }catch(e){ console.warn(e); }
+  try{ await rtdbBatchUpdate(VOCAB_PATH, [[id,null]]); }catch(e){ console.warn(e); }
 }
+
+// ==== Quick edit ====
 function quickEdit(p){
   const ale=prompt("Alemán:", p.ale); if(ale===null) return;
   const pron=prompt("Pronunciación (DE):", p.pron||""); if(pron===null) return;
@@ -348,8 +462,10 @@ function quickEdit(p){
     ale,pron,pronCh,ch,es,tema,
     variaciones:(vari||"").split("/").map(s=>s.trim()).filter(Boolean)
   });
-  persistPhrase(p); renderList();
+  persistPhrase(p);
 }
+
+// ==== Ordenación ====
 function sortPhrases(){
   state.phrases.sort((a,b)=>
     (a.ale||"").localeCompare(b.ale||"", "de", {sensitivity:"base"})
@@ -385,6 +501,22 @@ function exportPipeDict(arr){
   return lines.join("\n");
 }
 
+// ==== Copy util ====
+async function copyTextOrDownload(filename, text){
+  try{
+    if(navigator.clipboard && window.isSecureContext){
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  }catch{}
+  const blob=new Blob([text],{type:"text/plain;charset=utf-8"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url; a.download=filename; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },0);
+  return false;
+}
+
 // ==== UI / Import ====
 function setupUI(){
   // Tabs
@@ -402,7 +534,7 @@ function setupUI(){
     $("#settingsDlg")?.showModal();
   });
 
-  // Importar (PipeDict v1)
+  // Importar (PipeDict v1) — chunk + yield
   $("#btnImport")?.addEventListener("click", async ()=>{
     const txt = $("#importText")?.value || "";
     if(!txt.trim()) return;
@@ -413,6 +545,7 @@ function setupUI(){
     for(const it of phrases){ if(it.tema && !state.temas.includes(it.tema)) state.temas.push(it.tema); }
     saveLocal(); updateTemaSelects();
 
+    // Merge en memoria
     const pmap=new Map(state.phrases.map(p=>[p.id,p]));
     for(const it of phrases) pmap.set(it.id,it);
     state.phrases = Array.from(pmap.values());
@@ -423,91 +556,65 @@ function setupUI(){
     state.vocab = Array.from(vmap.values());
     sortVocab();
 
-    saveLocal(); renderList(); renderVocab();
+    saveLocal();
+    computeFilteredPhrases();
+    renderListInitial();
+    ensureInfiniteScroll();
+    renderVocab();
 
+    // Persist dict y datos en lotes con respiración al UI
     await persistDict();
-    for(const it of phrases){ try{ await DB.ref(`${PHRASES_PATH}/${it.id}`).set(it); }catch(e){ console.error("Error frase", it, e); } }
-    for(const v of vocab){ try{ await DB.ref(`${VOCAB_PATH}/${v.id}`).set(v); }catch(e){ console.error("Error vocab", v, e); } }
+    await rtdbChunkedSet(PHRASES_PATH, phrases, 150);
+    await rtdbChunkedSet(VOCAB_PATH, vocab, 150);
 
     if($("#importText")) $("#importText").value = "";
   });
 
   $("#btnClearInput")?.addEventListener("click", ()=> $("#importText") && ($("#importText").value=""));
 
-  // Filtros de la lista
+  // Filtros con debounce
+  const onFilterChange = debounce(()=>{
+    computeFilteredPhrases();
+    renderListInitial();
+  }, 120);
   ["#q","#fTema","#fEstado","#fDificultad","#fTipo"].forEach(id=>{
     const el=$(id); if(!el) return;
-    el.addEventListener("input",renderList);
-    el.addEventListener("change",renderList);
+    el.addEventListener("input",onFilterChange);
+    el.addEventListener("change",onFilterChange);
   });
 
- // Export PipeDict v1 (frases) → portapapeles
-$("#btnExportPipeDict")?.addEventListener("click", ()=>{
-  const txt = exportPipeDict(state.phrases);
-  navigator.clipboard?.writeText(txt).catch(console.warn);
-});
-
-// === UTIL: copiar con fallback a descarga ===
-async function copyTextOrDownload(filename, text){
-  try{
-    if(navigator.clipboard && window.isSecureContext){
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  }catch{}
-  const blob=new Blob([text],{type:"text/plain;charset=utf-8"});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement("a");
-  a.href=url; a.download=filename; document.body.appendChild(a); a.click();
-  setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },0);
-  return false;
-}
-
-// === setupUI(): handlers correctos ===
-
-// Export SIMPLE (vocab) → portapapeles o descarga
-(() => {
-  const btn = document.getElementById("btnExportSimple");
-  if(!btn) return;
-  btn.addEventListener("click", async ()=>{
+  // Export SIMPLE (vocab)
+  $("#btnExportSimple")?.addEventListener("click", async ()=>{
     const mode = $("#vocabMode")?.value || "es";
     const txt  = exportVocabSimple(state.vocab, mode);
     await copyTextOrDownload(`vocab_${mode}.txt`, txt);
   });
-})();
 
-// Export PipeDict v1 (frases) → portapapeles o descarga
-(() => {
-  const btn = document.getElementById("btnExportPipeDict");
-  if(!btn) return;
-  btn.addEventListener("click", async ()=>{
+  // Export PipeDict (frases)
+  $("#btnExportPipeDict")?.addEventListener("click", async ()=>{
     const txt = exportPipeDict(state.phrases);
     await copyTextOrDownload("phrases_pipe.txt", txt);
   });
-})();
+
   // Vocab UI mode
   $("#vocabMode")?.addEventListener("change", (e)=>{
     state.vocabMode = e.target.value || "es";
     renderVocab();
   });
+
+  // Infinite scroll
+  ensureInfiniteScroll();
 }
-
-// Export PipeDict (frases)
-document.getElementById("btnExportPipeDict")?.addEventListener("click", async ()=>{
-  const txt = exportPipeDict(state.phrases);
-  await copyTextOrDownload("phrases_pipe.txt", txt);
-});
-
-// Export vocab simple
-document.getElementById("btnExportVocab")?.addEventListener("click", async ()=>{
-  const mode = $("#vocabMode")?.value || "es";
-  const txt  = exportVocabSimple(state.vocab, mode);
-  await copyTextOrDownload(`vocab_${mode}.txt`, txt);
-});
 
 // ==== Bootstrap ====
 function bootstrap(){
-  loadLocal(); updateTemaSelects(); renderList(); renderVocab(); setupUI();
-  syncFromRTDB();
+  loadLocal();
+  updateTemaSelects();
+  computeFilteredPhrases();
+  renderListInitial();
+  ensureInfiniteScroll();
+  renderVocab();
+  // sync después para no bloquear primer paint
+  setTimeout(syncFromRTDB, 50);
 }
 document.addEventListener("DOMContentLoaded", bootstrap);
