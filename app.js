@@ -447,6 +447,44 @@ $("#btnExportPipeDict")?.addEventListener("click", ()=>{
   navigator.clipboard?.writeText(txt).catch(console.warn);
 });
 
+// === UTIL: copiar con fallback a descarga ===
+async function copyTextOrDownload(filename, text){
+  try{
+    if(navigator.clipboard && window.isSecureContext){
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  }catch{}
+  const blob=new Blob([text],{type:"text/plain;charset=utf-8"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url; a.download=filename; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },0);
+  return false;
+}
+
+// === setupUI(): handlers correctos ===
+
+// Export SIMPLE (vocab) → portapapeles o descarga
+(() => {
+  const btn = document.getElementById("btnExportSimple");
+  if(!btn) return;
+  btn.addEventListener("click", async ()=>{
+    const mode = $("#vocabMode")?.value || "es";
+    const txt  = exportVocabSimple(state.vocab, mode);
+    await copyTextOrDownload(`vocab_${mode}.txt`, txt);
+  });
+})();
+
+// Export PipeDict v1 (frases) → portapapeles o descarga
+(() => {
+  const btn = document.getElementById("btnExportPipeDict");
+  if(!btn) return;
+  btn.addEventListener("click", async ()=>{
+    const txt = exportPipeDict(state.phrases);
+    await copyTextOrDownload("phrases_pipe.txt", txt);
+  });
+})();
   // Vocab UI mode
   $("#vocabMode")?.addEventListener("change", (e)=>{
     state.vocabMode = e.target.value || "es";
