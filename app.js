@@ -442,7 +442,7 @@ function setupUI(){
   });
 
  // Export PipeDict v1 (frases) → portapapeles
-$("#btnExportVocab")?.addEventListener("click", ()=>{
+$("#btnExportPipeDict")?.addEventListener("click", ()=>{
   const txt = exportPipeDict(state.phrases);
   navigator.clipboard?.writeText(txt).catch(console.warn);
 });
