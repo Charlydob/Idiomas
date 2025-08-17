@@ -22,91 +22,201 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
 </head>
 <body>
-  <div id="app">
-    <header class="topbar">
-      <div class="brand">Deutsch Coach</div>
-      <button id="btnSettings" class="icon-btn" title="Ajustes">⚙️</button>
+  <div id="app" class="app-shell">
+    <!-- TOP APP BAR -->
+    <header class="topbar" role="banner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">🜁</span>
+        <span class="brand-name">Deutsch Coach</span>
+      </div>
+
+      <div class="topbar-actions">
+        <button id="btnSettings" class="icon-btn" title="Ajustes" aria-haspopup="dialog" aria-controls="settingsDialog">⚙️</button>
+      </div>
     </header>
 
-    <main class="screen">
-      <section class="tabs">
-        <button data-tab="import" class="tab active">Importar</button>
-        <button data-tab="frases" class="tab">Frases</button>
-        <button data-tab="vocab" class="tab">Vocab</button>
-        <button data-tab="repaso" class="tab">Repaso</button>
-      </section>
+    <!-- PRIMARY TABS -->
+    <nav class="tabs primary" role="tablist" aria-label="Secciones">
+      <button class="tab active" role="tab" aria-selected="true" aria-controls="tab-import" id="tab-import-btn" data-tab="import">Importar</button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="tab-frases" id="tab-frases-btn" data-tab="frases">Frases</button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="tab-vocab" id="tab-vocab-btn" data-tab="vocab">Vocab</button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="tab-repaso" id="tab-repaso-btn" data-tab="repaso">Repaso</button>
+    </nav>
 
+    <!-- CONTENT AREA -->
+    <main class="screen content" role="main">
       <!-- IMPORTAR -->
-      <section id="tab-import" class="panel active">
-        <div class="card">
-          <h2>Importar (PipeDict v1)</h2>
-          <textarea id="importText" rows="8"
-            placeholder="a|s|pa|ps|e1,e2|t  (todos IDs del diccionario)&#10;# Comentarios permitidos con # o //&#10;Ej: k1f3|k1f3|2z9a|2z9a|7s0b,8qmm|t01x"></textarea>
-          <div class="row">
-            <button id="btnImport" class="primary">Guardar</button>
-            <button id="btnClearInput" class="ghost">Limpiar</button>
-          </div>
-        </div>
+      <section id="tab-import" class="panel active" role="tabpanel" aria-labelledby="tab-import-btn">
+        <article class="card">
+          <header class="card-head">
+            <h2 class="card-title">Importar (PipeDict v1)</h2>
+            <p class="card-subtitle">Pega tus líneas, valida y guarda.</p>
+          </header>
+
+          <form class="form stacked" id="importForm">
+            <fieldset class="fieldset">
+              <legend class="legend">Datos a importar</legend>
+
+              <div class="control-group">
+                <label for="importText" class="label">Entrada</label>
+                <textarea id="importText" class="input textarea" rows="10"
+                  placeholder="a|s|pa|ps|e1,e2|t  (IDs del diccionario)
+# Comentarios con # o //
+Ej: k1f3|k1f3|2z9a|2z9a|7s0b,8qmm|t01x"></textarea>
+                <small class="help">Formato: PipeDict v1 · Se ignoran líneas vacías y comentarios.</small>
+              </div>
+            </fieldset>
+
+            <div class="action-bar">
+              <button id="btnImport" class="btn primary" type="button">Guardar</button>
+              <button id="btnClearInput" class="btn ghost" type="button">Limpiar</button>
+            </div>
+          </form>
+        </article>
       </section>
 
       <!-- FRASES -->
-      <section id="tab-frases" class="panel">
-        <div class="card">
-          <div class="filters">
-            <input id="q" type="search" placeholder="Buscar… (DE/ES/CH/pron)" />
-            <select id="fTema"><option value="">Tema</option></select>
-            <select id="fEstado">
-              <option value="">Estado</option>
-              <option>nuevo</option><option>practicada</option><option>repasada</option><option>difícil</option>
-            </select>
-            <select id="fDificultad">
-              <option value="">Dificultad</option>
-              <option>fácil</option><option>normal</option><option>difícil</option><option>útil</option>
-            </select>
-            <select id="fTipo">
-              <option value="">Tipo</option>
-              <option>afirmación</option><option>pregunta</option><option>negación</option><option>saludo</option><option>petición</option>
-            </select>
-          </div>
+      <section id="tab-frases" class="panel" role="tabpanel" aria-labelledby="tab-frases-btn" hidden>
+        <article class="card">
+          <header class="card-head">
+            <h2 class="card-title">Frases</h2>
+          </header>
 
-          <div class="row" style="margin:8px 0">
-            <button id="btnExportPipeDict">Exportar PipeDict</button>
-          </div>
+          <!-- FILTER BAR -->
+          <form id="phraseFilters" class="toolbar filterbar" role="search">
+            <div class="cluster">
+              <div class="input-group grow">
+                <label for="q" class="visually-hidden">Buscar</label>
+                <input id="q" type="search" class="input" placeholder="Buscar… (DE/ES/CH/pron)" autocomplete="off" />
+              </div>
+            </div>
 
-          <div id="phraseList" class="list"></div>
-        </div>
+            <div class="cluster wrap">
+              <div class="input-group">
+                <label for="fTema" class="label">Tema</label>
+                <select id="fTema" class="select">
+                  <option value="">Todos</option>
+                </select>
+              </div>
+
+              <div class="input-group">
+                <label for="fEstado" class="label">Estado</label>
+                <select id="fEstado" class="select">
+                  <option value="">Todos</option>
+                  <option>nuevo</option>
+                  <option>practicada</option>
+                  <option>repasada</option>
+                  <option>difícil</option>
+                </select>
+              </div>
+
+              <div class="input-group">
+                <label for="fDificultad" class="label">Dificultad</label>
+                <select id="fDificultad" class="select">
+                  <option value="">Todas</option>
+                  <option>fácil</option>
+                  <option>normal</option>
+                  <option>difícil</option>
+                  <option>útil</option>
+                </select>
+              </div>
+
+              <div class="input-group">
+                <label for="fTipo" class="label">Tipo</label>
+                <select id="fTipo" class="select">
+                  <option value="">Todos</option>
+                  <option>afirmación</option>
+                  <option>pregunta</option>
+                  <option>negación</option>
+                  <option>saludo</option>
+                  <option>petición</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="toolbar-spacer"></div>
+
+            <div class="cluster">
+              <button id="btnExportPipeDict" class="btn" type="button">Exportar PipeDict</button>
+            </div>
+          </form>
+
+          <!-- LIST -->
+          <div class="list-wrap">
+            <div id="phraseList" class="list" role="feed" aria-busy="false" aria-live="polite"></div>
+          </div>
+        </article>
       </section>
 
       <!-- VOCABULARIO -->
-      <section id="tab-vocab" class="panel">
-        <div class="card">
-          <div class="row" style="gap:8px">
-            <select id="vocabMode">
-              <option value="es">Vista ES→DE</option>
-              <option value="de">Vista DE→ES</option>
-            </select>
-            <button id="btnExportVocab" class="ghost">Exportar vocab (simple)</button>
+      <section id="tab-vocab" class="panel" role="tabpanel" aria-labelledby="tab-vocab-btn" hidden>
+        <article class="card">
+          <header class="card-head">
+            <h2 class="card-title">Vocabulario</h2>
+          </header>
+
+          <div class="toolbar">
+            <div class="cluster">
+              <div class="input-group">
+                <label for="vocabMode" class="label">Vista</label>
+                <select id="vocabMode" class="select">
+                  <option value="es">ES → DE</option>
+                  <option value="de">DE → ES</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="toolbar-spacer"></div>
+
+            <div class="cluster">
+              <button id="btnExportVocab" class="btn ghost" type="button">Exportar vocab (simple)</button>
+            </div>
           </div>
-          <div id="vocabList" class="list"></div>
-        </div>
+
+          <div class="list-wrap">
+            <div id="vocabList" class="list" role="list"></div>
+          </div>
+        </article>
       </section>
 
-      <!-- REPASO (placeholder, tu contenido) -->
-      <section id="tab-repaso" class="panel">
-        <div class="card">
-          <h2>Repaso</h2>
-          <p>Próximamente…</p>
-        </div>
+      <!-- REPASO -->
+      <section id="tab-repaso" class="panel" role="tabpanel" aria-labelledby="tab-repaso-btn" hidden>
+        <article class="card">
+          <header class="card-head">
+            <h2 class="card-title">Repaso</h2>
+            <p class="card-subtitle">Tu sesión inteligente de práctica.</p>
+          </header>
+
+          <div class="empty-state" role="status" aria-live="polite">
+            <p>Próximamente…</p>
+          </div>
+        </article>
       </section>
     </main>
 
-    <footer class="bottombar">
-      <button data-tab="import" class="tablink active">📥</button>
-      <button data-tab="frases" class="tablink">📚</button>
-      <button data-tab="vocab" class="tablink">🗂️</button>
-      <button data-tab="repaso" class="tablink">🔁</button>
+    <!-- BOTTOM NAV (mobile) -->
+    <footer class="bottombar" role="navigation" aria-label="Navegación inferior">
+      <button class="tablink active" data-tab="import" aria-controls="tab-import" aria-label="Importar">📥</button>
+      <button class="tablink" data-tab="frases" aria-controls="tab-frases" aria-label="Frases">📚</button>
+      <button class="tablink" data-tab="vocab" aria-controls="tab-vocab" aria-label="Vocabulario">🗂️</button>
+      <button class="tablink" data-tab="repaso" aria-controls="tab-repaso" aria-label="Repaso">🔁</button>
     </footer>
   </div>
+
+  <!-- SETTINGS DIALOG (skeleton) -->
+  <dialog id="settingsDialog" class="dialog" aria-label="Ajustes">
+    <form method="dialog" class="dialog-body">
+      <header class="dialog-head">
+        <h3 class="dialog-title">Ajustes</h3>
+      </header>
+      <section class="dialog-content">
+        <p>Config. próximamente.</p>
+      </section>
+      <footer class="dialog-foot">
+        <button value="cancel" class="btn ghost">Cerrar</button>
+      </footer>
+    </form>
+  </dialog>
 
   <!-- App -->
   <script src="app.js"></script>
