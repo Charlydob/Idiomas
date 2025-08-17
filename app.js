@@ -15,165 +15,101 @@
 })();
 const PHRASES_PATH = "/deutsch_phrases";
 const VOCAB_PATH   = "/deutsch_vocab";
+const DICT_PATH    = "/deutsch_dict";
 
 // ==== Estado / utilidades ====
 const LS_KEY   = "deutsch.phrases.v1";
 const LS_TEMAS = "deutsch.temas.v1";
 const LS_VOCAB = "deutsch.vocab.v1";
+const LS_DICT  = "deutsch.dict.v1";
 const DEFAULT_TEMAS = ["Saludos","Transporte","Direcciones","Compras","Comida","Salud","Trabajo","Escape","Conversación","Emergencias"];
 const $  = (s,c=document)=>c.querySelector(s);
 const $$ = (s,c=document)=>Array.from(c.querySelectorAll(s));
-const state = { phrases:[], temas:[], vocab:[], quizPool:[], quizIdx:0, vocabMode:"es" };
+const state = { phrases:[], temas:[], vocab:[], dict:{}, quizPool:[], quizIdx:0, vocabMode:"es" };
 
 const uid = (s="")=>{ const b=s.normalize("NFKD").toLowerCase(); let h=2166136261>>>0; for(let i=0;i<b.length;i++){ h^=b.charCodeAt(i); h=Math.imul(h,16777619)>>>0;} return "id_"+h.toString(36); };
 const nowISO = ()=>new Date().toISOString();
 const normalize = v=>(v||"").trim();
-const saveLocal = ()=>{ localStorage.setItem(LS_KEY, JSON.stringify(state.phrases)); localStorage.setItem(LS_TEMAS, JSON.stringify(state.temas)); localStorage.setItem(LS_VOCAB, JSON.stringify(state.vocab)); };
+const saveLocal = ()=>{
+  localStorage.setItem(LS_KEY,   JSON.stringify(state.phrases));
+  localStorage.setItem(LS_TEMAS, JSON.stringify(state.temas));
+  localStorage.setItem(LS_VOCAB, JSON.stringify(state.vocab));
+  localStorage.setItem(LS_DICT,  JSON.stringify(state.dict));
+};
 const loadLocal = ()=>{ try{
   state.phrases=JSON.parse(localStorage.getItem(LS_KEY)||"[]");
   state.temas=JSON.parse(localStorage.getItem(LS_TEMAS)||"[]");
   state.vocab=JSON.parse(localStorage.getItem(LS_VOCAB)||"[]");
+  state.dict =JSON.parse(localStorage.getItem(LS_DICT)||"{}");
   if(!state.temas.length) state.temas=DEFAULT_TEMAS.slice();
-}catch{ state.phrases=[]; state.temas=DEFAULT_TEMAS.slice(); state.vocab=[]; } };
+}catch{ state.phrases=[]; state.temas=DEFAULT_TEMAS.slice(); state.vocab=[]; state.dict={}; } };
 
-// ==== Parser DLF (con pronunciación suiza y vocabulario manual) ====
-// [VOC] pares "es:de" separados por "/":  [VOC] agua:Wasser / pan:Brot
-function parseDLF(text){
-  const out=[]; const vocabPairs=[];
-  const lines=(text||"").split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
-  for(const line of lines){
-    const parts=line.split("|").map(p=>p.trim());
-    const obj={ id:"", ale:"", ch:"", pron:"", pronCh:"", es:"", tema:"", variaciones:[], estado:"", dificultad:"", tipo:"", createdAt:nowISO() };
-    let vocStr = "";
-    for(const p of parts){
-      const m=p.match(/^\[(\w+(?:-\w+)?)\]\s*(.*)$/i); if(!m) continue;
-      const key=m[1].toUpperCase(); const val=m[2].trim();
-      if(key==="ALE") obj.ale=val;
-      else if(key==="CH"||key==="SUIZO"||key==="SWISS") obj.ch=val;
-      else if(key==="PRON") obj.pron=val;
-      else if(key==="PRON-CH"||key==="PRON_CH"||key==="PRONSUIZO") obj.pronCh=val;
-      else if(key==="ES"||key==="ESP"||key==="ESPAÑOL") obj.es=val;
-      else if(key==="TEMA"||key==="TOPIC") obj.tema=val;
-      else if(key==="VAR"||key==="VARIACIONES") obj.variaciones=val.split("/").map(s=>s.trim()).filter(Boolean);
-      else if(key==="ESTADO") obj.estado=val.toLowerCase();
-      else if(key==="DIFIC"||key==="DIFICULTAD") obj.dificultad=val.toLowerCase();
-      else if(key==="TIPO") obj.tipo=val.toLowerCase();
-      else if(key==="VOC") vocStr = val;
-    }
-    obj.id = uid(`${obj.ale}||${obj.es}||${obj.tema}`);
-    if(obj.ale && obj.es) out.push(obj);
-
-    if(vocStr){
-      const pairs = vocStr.split("/").map(s=>s.trim()).filter(Boolean);
-      for(const pair of pairs){
-        const m = pair.match(/^(.+?):(.+)$/); // es:de
-        if(!m) continue;
-        const es = m[1].trim(); const de = m[2].trim();
-        const vid = uid(`voc||${es}||${de}`);
-        vocabPairs.push({ id:vid, es, de:de.toLowerCase(), tema: obj.tema || "", etiquetas: [], createdAt: nowISO() });
-      }
-    }
-  }
-  return { phrases: out, vocab: vocabPairs };
+// ==== Diccionario global (PipeDict v1) ====
+const did = (s)=> uid("d||"+(s||"")).slice(3); // id estable corto
+const dictGet = (id)=> (state.dict?.[id] ?? "");
+const dictEnsure = (text)=>{
+  const t=(text||"").trim(); if(!t) return "";
+  const id=did(t);
+  if(!state.dict[id]) state.dict[id]=t;
+  return id;
+};
+async function persistDict(){
+  saveLocal();
+  try{ await DB.ref(DICT_PATH).set(state.dict); }catch(e){ console.error("RTDB dict", e); }
 }
 
-// === Heurísticas etiquetas (solo VOCAB) + auto-vocab desde frases ===
+// ==== Parser PipeDict v1 ====
+// Línea: a|s|pa|ps|e1,e2(,eN)[|t]  → todos son IDs en DICT
+function parsePipeDict(text){
+  const outP=[]; const outV=[];
+  const lines=(text||"").split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  for(const line of lines){
+    if(/^#|^\/\//.test(line)) continue;
+    const parts=line.split("|");
+    if(parts.length<5) continue;
+    const [a,s,pa,ps,elist,temaId=""] = parts.map(x=>x.trim());
+
+    const ale   = dictGet(a);
+    const ch    = dictGet(s);
+    const pron  = dictGet(pa);
+    const pronC = dictGet(ps);
+    const esArr = (elist?elist.split(","):[]).map(id=>dictGet(id)).filter(Boolean);
+    const es    = esArr.join(" / ");
+    const tema  = dictGet(temaId)||"";
+
+    const obj = {
+      id: uid(`${ale}||${es}||${tema}`),
+      ale, ch, pron, pronCh: pronC, es, tema,
+      variaciones:[], estado:"", dificultad:"", tipo:"", createdAt:nowISO()
+    };
+    if(obj.ale && obj.es) outP.push(obj);
+
+    for(const esOne of esArr){
+      const vid = uid(`voc||${esOne}||${(ale||"").toLowerCase()}`);
+      outV.push({ id:vid, es: esOne, de:(ale||"").toLowerCase(), tema, etiquetas:[], createdAt: nowISO() });
+    }
+  }
+  return { phrases: outP, vocab: outV };
+}
+
+// ==== Heurísticas (no usadas por PipeDict, se mantienen por compat) ====
 const DET_SET = new Set(["ein","eine","einen","einem","einer","eines","der","die","das","den","dem","des","kein","keine","keinen","keinem","keiner","keines","mein","dein","sein","ihr","unser","euer","ihr","ihr".toLowerCase()]);
 const PRON_SET = new Set(["ich","du","er","sie","es","wir","ihr","sie","mich","dich","ihn","uns","euch","ihnen","mir","dir","ihm","ihr"]);
 const PREP_SET = new Set(["an","auf","aus","bei","mit","nach","seit","von","zu","über","unter","vor","hinter","neben","zwischen","durch","für","gegen","ohne","um","bis","entlang","trotz","während","wegen","ausser","außer","gegenüber","innerhalb","außerhalb"]);
 const ADV_SET  = new Set(["heute","morgen","gestern","jetzt","gleich","hier","dort","da","sehr","gern","gerne","immer","nie","oft","bald","später"]);
 const COURTESY_SET = new Set(["bitte","danke","entschuldigung","tschüss","hallo","servus","grüezi","grüß","gruss","gruess"]);
-const BASE_ES_MAP = {
-  // determinantes / cortesía / conectores frecuentes
-  "ein":"un", "eine":"una", "einen":"un", "einem":"a un", "einer":"a una",
-  "der":"el", "die":"la", "das":"el", "den":"el", "dem":"al", "des":"del",
-  "kein":"ningún", "keine":"ninguna",
-  "bitte":"por favor",
-  "und":"y", "oder":"o", "aber":"pero", "danke":"gracias", "hallo":"hola", "tschüss":"adiós",
-};
 function guessTags(originalToken, lower){
   const tags = [];
   if(DET_SET.has(lower)) tags.push("determinante");
   if(PRON_SET.has(lower)) tags.push("pronombre");
   if(PREP_SET.has(lower)) tags.push("preposición");
   if(ADV_SET.has(lower))  tags.push("adverbio");
-    if(ADV_SET.has(lower))  tags.push("adjetivo");
-
+  if(ADV_SET.has(lower))  tags.push("adjetivo");
   if(COURTESY_SET.has(lower)) tags.push("cortesía");
-  if(!tags.length && /[a-zäöüß\-]{3,}en$/.test(lower)) tags.push("verbo"); // infinitivo aprox
-  if(!tags.length && /^[A-ZÄÖÜ]/.test(originalToken)) tags.push("sustantivo"); // heurística
+  if(!tags.length && /[a-zäöüß\-]{3,}en$/.test(lower)) tags.push("verbo");
+  if(!tags.length && /^[A-ZÄÖÜ]/.test(originalToken)) tags.push("sustantivo");
   if(!tags.length) tags.push("otro");
   return Array.from(new Set(tags));
-}
-function extractVocabFromPhrases(phrases){
-  const created = nowISO();
-  const existing = new Set(state.vocab.map(v=> (v.de||"").toLowerCase()));
-  const out = [];
-  for(const p of phrases){
-    const tema = p.tema || "";
-    const aleOriginal = (p.ale || "");
-    const words = aleOriginal
-      .replace(/[.,;:!?(){}\[\]"“”‘’´`…]/g, " ")
-      .split(/\s+/)
-      .map(w => w.trim())
-      .filter(Boolean)
-      .filter(w => /^[A-Za-zÄÖÜäöüß\-]{2,}$/.test(w)); // no 1 letra, no números
-    for(const token of words){
-      const deLower = token.toLowerCase();
-      if(existing.has(deLower)) continue;
-      existing.add(deLower);
-      out.push({
-        id: uid(`voc||${deLower}`),
-        es: "",                      // se intenta rellenar automáticamente después
-        de: deLower,
-        tema,
-        etiquetas: guessTags(token, deLower),
-        createdAt: created
-      });
-    }
-  }
-  return out;
-}
-
-// === Autorrelleno ES de vocab a partir de frases ===
-// 1) usa [VOC] manual si existe (ya viene con ES)
-// 2) si no hay ES: intenta diccionario BASE_ES_MAP
-// 3) si sigue vacío: busca tokens del ES de la frase que coincidan por reglas simples (muy básico)
-function fillVocabEsFromPhrases(phrases, vocabList){
-  // índice rápido por tema para limitar búsqueda
-  const byTema = new Map();
-  for(const p of phrases){
-    const key = p.tema || "_";
-    if(!byTema.has(key)) byTema.set(key, []);
-    byTema.get(key).push(p);
-  }
-  for(const v of vocabList){
-    if(v.es) continue; // ya tiene ES (por [VOC] o edición)
-    // diccionario base
-    if(BASE_ES_MAP[v.de]){ v.es = BASE_ES_MAP[v.de]; continue; }
-
-    // buscar dentro de frases del mismo tema (si no, en todas)
-    const candidates = (byTema.get(v.tema||"_") || []).concat(byTema.get("_")||[], ...byTema.values());
-    let guessed = "";
-    for(const p of candidates){
-      if(!p.es) continue;
-      const esSent = p.es.toLowerCase();
-      // reglas super simples: cortesía
-      if(v.de==="bitte" && esSent.includes("por favor")) { guessed="por favor"; break; }
-      if(v.de==="danke" && esSent.includes("gracias")) { guessed="gracias"; break; }
-      // artículos
-      if(v.de==="ein"  && /\bun\b/.test(esSent)) { guessed="un"; break; }
-      if(v.de==="eine" && /\buna\b/.test(esSent)) { guessed="una"; break; }
-      // si el token alemán es capitalizado y el ES tiene una palabra similar (primer char igual y >3), aprox:
-      if(v.de.length>=4){
-        const wordsES = esSent.split(/\s+/);
-        const cand = wordsES.find(w=> w[0]===v.de[0] && Math.abs(w.length - v.de.length)<=2 );
-        if(cand){ guessed = cand; break; }
-      }
-    }
-    v.es = guessed || ""; // si no encuentra, queda vacío
-  }
-  return vocabList;
 }
 
 // ==== Render tarjetas (Frases) ====
@@ -213,7 +149,6 @@ function renderCard(p){
     </div>
   `;
 }
-// ==== renderList (MODIFICADA: orden alfabético por DE siempre) ====
 function renderList(){
   const q=(normalize($("#q")?.value)).toLowerCase();
   const tema=$("#fTema")?.value, est=$("#fEstado")?.value, dif=$("#fDificultad")?.value, tipo=$("#fTipo")?.value;
@@ -224,8 +159,6 @@ function renderList(){
   if(est) arr = arr.filter(p=>p.estado===est);
   if(dif) arr = arr.filter(p=>p.dificultad===dif);
   if(tipo)arr = arr.filter(p=>p.tipo===tipo);
-
-  // ordenar por alemán (DE) independientemente de filtros
   arr.sort((a,b)=> (a.ale||"").localeCompare(b.ale||"", "de", {sensitivity:"base"}));
 
   const list=$("#phraseList"); if(!list) return;
@@ -238,8 +171,7 @@ function renderList(){
   });
 }
 
-
-// ==== Vocab: UI + modal detalle + editar/borrar (sin confirm) ====
+// ==== Vocab: UI + modal ====
 function ensureVocabDialog(){
   if($("#vocabDlg")) return $("#vocabDlg");
   const dlg = document.createElement("dialog");
@@ -256,7 +188,7 @@ function ensureVocabDialog(){
         <input id="vocabTema" placeholder="Tema" />
       </div>
       <div class="chiprow" style="gap:6px; margin:8px 0" id="vocabTagPicker">
-        ${["sustantivo","verbo","determinante","pronombre","preposición","adverbio", "adjetivo","cortesía","otro"].map(t=>`
+        ${["sustantivo","verbo","determinante","pronombre","preposición","adverbio","adjetivo","cortesía","otro"].map(t=>`
           <button type="button" class="chip" data-tag="${t}">${t}</button>
         `).join("")}
       </div>
@@ -303,20 +235,16 @@ async function openVocabModal(item){
     dlg.close();
   };
   $("#vocabDelete", dlg).onclick = async ()=>{
-    await delVocab(item.id);  // sin confirmación
+    await delVocab(item.id);
     renderVocab();
     dlg.close();
   };
 }
-// ==== renderVocab (MODIFICADA: orden alfabético por DE siempre) ====
 function renderVocab(){
-  const mode = state.vocabMode; // "es" o "de" (solo afecta cabeceras, no el orden)
+  const mode = state.vocabMode;
   const list = $("#vocabList"); if(!list) return;
   let data = state.vocab.slice();
-
-  // ordenar SIEMPRE por alemán (de)
   data.sort((a,b)=> (a.de||"").localeCompare(b.de||"", "de", {sensitivity:"base"}));
-
   list.innerHTML = data.map(v=>{
     const head = mode==="es" ? (v.es || v.de || "—") : (v.de || v.es || "—");
     const tail = mode==="es" ? (v.de || "(DE pendiente)") : (v.es || "(ES pendiente)");
@@ -354,29 +282,33 @@ function renderVocab(){
   });
 }
 
-
-// ==== RTDB sync (MODIFICADA: añade sort) ====
+// ==== RTDB sync ====
 async function syncFromRTDB(){
   try{
-    const snapP = await DB.ref(PHRASES_PATH).get();
+    const [snapP, snapV, snapD] = await Promise.all([
+      DB.ref(PHRASES_PATH).get(),
+      DB.ref(VOCAB_PATH).get(),
+      DB.ref(DICT_PATH).get()
+    ]);
+
     const cloudP = Object.values(snapP.val()||{});
-    const map = new Map(state.phrases.map(p=>[p.id,p]));
-    for(const p of cloudP) map.set(p.id,p);
-    state.phrases = Array.from(map.values());
+    const pmap = new Map(state.phrases.map(p=>[p.id,p]));
+    for(const p of cloudP) pmap.set(p.id,p);
+    state.phrases = Array.from(pmap.values());
     for(const p of state.phrases){ if(p.tema && !state.temas.includes(p.tema)) state.temas.push(p.tema); }
     sortPhrases();
 
-    const snapV = await DB.ref(VOCAB_PATH).get();
     const cloudV = Object.values(snapV.val()||{});
     const vmap = new Map(state.vocab.map(v=>[v.id,v]));
     for(const v of cloudV) vmap.set(v.id,v);
     state.vocab = Array.from(vmap.values());
     sortVocab();
 
+    state.dict = Object.assign({}, state.dict, (snapD.val()||{}));
+
     saveLocal(); updateTemaSelects(); renderList(); renderVocab();
   }catch(e){ console.warn("RTDB sync error", e); }
 }
-
 
 // ==== Persistencia ====
 async function persistPhrase(p){
@@ -418,7 +350,6 @@ function quickEdit(p){
   });
   persistPhrase(p); renderList();
 }
-// === NUEVO: helpers de ordenación alfabética ===
 function sortPhrases(){
   state.phrases.sort((a,b)=>
     (a.ale||"").localeCompare(b.ale||"", "de", {sensitivity:"base"})
@@ -431,22 +362,6 @@ function sortVocab(){
 }
 
 // ==== Exportaciones ====
-function exportDLF(arr){
-  return arr.map(p=>{
-    const parts = [];
-    parts.push(`[ALE] ${p.ale}`);
-    if(p.ch) parts.push(`[CH] ${p.ch}`);
-    if(p.pron) parts.push(`[PRON] ${p.pron}`);
-    if(p.pronCh) parts.push(`[PRON-CH] ${p.pronCh}`);
-    parts.push(`[ES] ${p.es}`);
-    if(p.tema) parts.push(`[TEMA] ${p.tema}`);
-    if(p.variaciones?.length) parts.push(`[VAR] ${p.variaciones.join(" / ")}`);
-    if(p.estado) parts.push(`[ESTADO] ${p.estado}`);
-    if(p.dificultad) parts.push(`[DIFIC] ${p.dificultad}`);
-    if(p.tipo) parts.push(`[TIPO] ${p.tipo}`);
-    return parts.join(" | ");
-  }).join("\n");
-}
 function exportVocabSimple(arr, mode="es"){
   return arr
     .slice()
@@ -454,8 +369,23 @@ function exportVocabSimple(arr, mode="es"){
     .map(v => mode==="es" ? `${(v.es||v.de||"—")} — ${(v.de||"(DE)")}` : `${(v.de||v.es||"—")} — ${(v.es||"(ES)")}`)
     .join("\n");
 }
+// PipeDict v1: a|s|pa|ps|e1,e2[,..]|t
+function exportPipeDict(arr){
+  const lines=[];
+  for(const p of arr){
+    const a  = dictEnsure(p.ale);
+    const s  = dictEnsure(p.ch||"");
+    const pa = dictEnsure(p.pron||"");
+    const ps = dictEnsure(p.pronCh||"");
+    const eIDs = (p.es||"").split("/").map(x=>x.trim()).filter(Boolean).map(dictEnsure);
+    const t  = dictEnsure(p.tema||"");
+    lines.push([a,s,pa,ps,eIDs.join(","),t].join("|"));
+  }
+  persistDict();
+  return lines.join("\n");
+}
 
-// ==== UI / Import (directo) ====
+// ==== UI / Import ====
 function setupUI(){
   // Tabs
   $$(".tab, .tablink").forEach(btn=>{
@@ -472,35 +402,35 @@ function setupUI(){
     $("#settingsDlg")?.showModal();
   });
 
-  // Importar directo (frases + vocab manual + auto-vocab + autotraducción ES)
-$("#btnImport")?.addEventListener("click", async ()=>{
-  const txt = $("#importText")?.value || "";
-  const { phrases, vocab } = parseDLF(txt);
-  if(!phrases.length && !vocab.length) return;
+  // Importar (PipeDict v1)
+  $("#btnImport")?.addEventListener("click", async ()=>{
+    const txt = $("#importText")?.value || "";
+    if(!txt.trim()) return;
 
-  const autoVocab = extractVocabFromPhrases(phrases);
-  fillVocabEsFromPhrases(phrases, autoVocab);
+    const { phrases, vocab } = parsePipeDict(txt);
+    if(!phrases.length && !vocab.length) return;
 
-  for(const it of phrases){ if(it.tema && !state.temas.includes(it.tema)) state.temas.push(it.tema); }
-  saveLocal(); updateTemaSelects();
+    for(const it of phrases){ if(it.tema && !state.temas.includes(it.tema)) state.temas.push(it.tema); }
+    saveLocal(); updateTemaSelects();
 
-  const pmap=new Map(state.phrases.map(p=>[p.id,p]));
-  for(const it of phrases) pmap.set(it.id,it);
-  state.phrases = Array.from(pmap.values());
-  sortPhrases();
+    const pmap=new Map(state.phrases.map(p=>[p.id,p]));
+    for(const it of phrases) pmap.set(it.id,it);
+    state.phrases = Array.from(pmap.values());
+    sortPhrases();
 
-  const vmap=new Map(state.vocab.map(v=>[v.id,v]));
-  for(const v of [...vocab, ...autoVocab]) vmap.set(v.id, Object.assign({etiquetas:[]}, v));
-  state.vocab = Array.from(vmap.values());
-  sortVocab();
+    const vmap=new Map(state.vocab.map(v=>[v.id,v]));
+    for(const v of vocab) vmap.set(v.id, Object.assign({etiquetas:[]}, v));
+    state.vocab = Array.from(vmap.values());
+    sortVocab();
 
-  saveLocal(); renderList(); renderVocab();
+    saveLocal(); renderList(); renderVocab();
 
-  for(const it of phrases){ try{ await DB.ref(`${PHRASES_PATH}/${it.id}`).set(it); }catch(e){ console.error("Error frase", it, e); } }
-  for(const v of [...vocab, ...autoVocab]){ try{ await DB.ref(`${VOCAB_PATH}/${v.id}`).set(v); }catch(e){ console.error("Error vocab", v, e); } }
+    await persistDict();
+    for(const it of phrases){ try{ await DB.ref(`${PHRASES_PATH}/${it.id}`).set(it); }catch(e){ console.error("Error frase", it, e); } }
+    for(const v of vocab){ try{ await DB.ref(`${VOCAB_PATH}/${v.id}`).set(v); }catch(e){ console.error("Error vocab", v, e); } }
 
-  if($("#importText")) $("#importText").value = "";
-});
+    if($("#importText")) $("#importText").value = "";
+  });
 
   $("#btnClearInput")?.addEventListener("click", ()=> $("#importText") && ($("#importText").value=""));
 
@@ -511,21 +441,23 @@ $("#btnImport")?.addEventListener("click", async ()=>{
     el.addEventListener("change",renderList);
   });
 
-  // Export simple DLF → portapapeles
-  $("#btnExportSimpleDLF")?.addEventListener("click", ()=>{
-    const txt = exportDLF(state.phrases);
-    navigator.clipboard?.writeText(txt).catch(console.warn);
-  });
-
-  // Vocab UI
-  $("#vocabMode")?.addEventListener("change", (e)=>{
-    state.vocabMode = e.target.value || "es";
-    renderVocab();
-  });
+  // Export simple Vocab → portapapeles
   $("#btnExportVocab")?.addEventListener("click", ()=>{
     const mode = $("#vocabMode")?.value || "es";
     const txt = exportVocabSimple(state.vocab, mode);
     navigator.clipboard?.writeText(txt).catch(console.warn);
+  });
+
+  // Export PipeDict v1 → portapapeles (opcional si existe botón)
+  $("#btnExportPipeDict")?.addEventListener("click", ()=>{
+    const txt = exportPipeDict(state.phrases);
+    navigator.clipboard?.writeText(txt).catch(console.warn);
+  });
+
+  // Vocab UI mode
+  $("#vocabMode")?.addEventListener("change", (e)=>{
+    state.vocabMode = e.target.value || "es";
+    renderVocab();
   });
 }
 
