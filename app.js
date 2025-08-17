@@ -492,6 +492,19 @@ async function copyTextOrDownload(filename, text){
   });
 }
 
+// Export PipeDict (frases)
+document.getElementById("btnExportPipeDict")?.addEventListener("click", async ()=>{
+  const txt = exportPipeDict(state.phrases);
+  await copyTextOrDownload("phrases_pipe.txt", txt);
+});
+
+// Export vocab simple
+document.getElementById("btnExportVocab")?.addEventListener("click", async ()=>{
+  const mode = $("#vocabMode")?.value || "es";
+  const txt  = exportVocabSimple(state.vocab, mode);
+  await copyTextOrDownload(`vocab_${mode}.txt`, txt);
+});
+
 // ==== Bootstrap ====
 function bootstrap(){
   loadLocal(); updateTemaSelects(); renderList(); renderVocab(); setupUI();
