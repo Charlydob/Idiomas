@@ -14,14 +14,12 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title>Deutsch Coach — Frases & Repaso</title>
   <link rel="stylesheet" href="app.css" />
+
   <!-- Firebase compat (no ESM) -->
-<!-- … head igual … -->
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script> <!-- ← AÑADIDO -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
-<!-- … resto igual … -->
-
 </head>
 <body>
   <div id="app">
@@ -30,73 +28,84 @@
       <button id="btnSettings" class="icon-btn" title="Ajustes">⚙️</button>
     </header>
 
-<!-- ...head y resto igual... -->
+    <main class="screen">
+      <section class="tabs">
+        <button data-tab="import" class="tab active">Importar</button>
+        <button data-tab="frases" class="tab">Frases</button>
+        <button data-tab="vocab" class="tab">Vocab</button>
+        <button data-tab="repaso" class="tab">Repaso</button>
+      </section>
 
-<main class="screen">
-  <section class="tabs">
-    <button data-tab="import" class="tab active">Importar</button>
-    <button data-tab="frases" class="tab">Frases</button>
-    <!-- NUEVO -->
-    <button data-tab="vocab" class="tab">Vocab</button>
-    <button data-tab="repaso" class="tab">Repaso</button>
-  </section>
+      <!-- IMPORTAR -->
+      <section id="tab-import" class="panel active">
+        <div class="card">
+          <h2>Importar (PipeDict v1)</h2>
+          <textarea id="importText" rows="8"
+            placeholder="a|s|pa|ps|e1,e2|t  (todos IDs del diccionario)&#10;# Comentarios permitidos con # o //&#10;Ej: k1f3|k1f3|2z9a|2z9a|7s0b,8qmm|t01x"></textarea>
+          <div class="row">
+            <button id="btnImport" class="primary">Guardar</button>
+            <button id="btnClearInput" class="ghost">Limpiar</button>
+          </div>
+        </div>
+      </section>
 
-  <!-- IMPORTAR (sin previsualizar) -->
-  <section id="tab-import" class="panel active">
-    <div class="card">
-      <h2>Importar frases del chat</h2>
-      <textarea id="importText" rows="8"
-        placeholder="[ALE] ... | [CH] ... | [PRON] ... | [PRON-CH] ... | [ES] ... | [TEMA] ... | [VAR] ... | [ESTADO] ... | [DIFIC] ... | [TIPO] ... | [VOC] agua:Wasser / pan:Brot"></textarea>
-      <div class="row">
-        <button id="btnImport" class="primary">Guardar</button>
-        <button id="btnClearInput" class="ghost">Limpiar</button>
-      </div>
-    </div>
-  </section>
+      <!-- FRASES -->
+      <section id="tab-frases" class="panel">
+        <div class="card">
+          <div class="filters">
+            <input id="q" type="search" placeholder="Buscar… (DE/ES/CH/pron)" />
+            <select id="fTema"><option value="">Tema</option></select>
+            <select id="fEstado">
+              <option value="">Estado</option>
+              <option>nuevo</option><option>practicada</option><option>repasada</option><option>difícil</option>
+            </select>
+            <select id="fDificultad">
+              <option value="">Dificultad</option>
+              <option>fácil</option><option>normal</option><option>difícil</option><option>útil</option>
+            </select>
+            <select id="fTipo">
+              <option value="">Tipo</option>
+              <option>afirmación</option><option>pregunta</option><option>negación</option><option>saludo</option><option>petición</option>
+            </select>
+          </div>
 
-  <!-- FRASES -->
-  <section id="tab-frases" class="panel">
-    <div class="card">
-      <div class="filters">
-        <input id="q" type="search" placeholder="Buscar… (DE/ES/CH/pron)" />
-        <select id="fTema"><option value="">Tema</option></select>
-        <select id="fEstado"><option value="">Estado</option><option>nuevo</option><option>practicada</option><option>repasada</option><option>difícil</option></select>
-        <select id="fDificultad"><option value="">Dificultad</option><option>fácil</option><option>normal</option><option>difícil</option><option>útil</option></select>
-        <select id="fTipo"><option value="">Tipo</option><option>afirmación</option><option>pregunta</option><option>negación</option><option>saludo</option><option>petición</option></select>
-      </div>
-      <div >
-        <!-- NUEVO: exportación simple (DLF directo al portapapeles, sin avisos) -->
-        <button id="btnExportPipeDict" >Exportar (simple)</button>
+          <div class="row" style="margin:8px 0">
+            <button id="btnExportPipeDict">Exportar PipeDict</button>
+          </div>
 
-      </div>
-      <div id="phraseList" class="list"></div>
-    </div>
-  </section>
+          <div id="phraseList" class="list"></div>
+        </div>
+      </section>
 
-  <!-- NUEVO: VOCABULARIO -->
-  <section id="tab-vocab" class="panel">
-    <div class="card">
-      <div class="row">
-        <select id="vocabMode">
-          <option value="es">Vista ES→DE</option>
-          <option value="de">Vista DE→ES</option>
-        </select>
-        <button id="btnExportVocab" class="ghost">Exportar vocab</button>
-      </div>
-      <div id="vocabList" class="list"></div>
-    </div>
-  </section>
+      <!-- VOCABULARIO -->
+      <section id="tab-vocab" class="panel">
+        <div class="card">
+          <div class="row" style="gap:8px">
+            <select id="vocabMode">
+              <option value="es">Vista ES→DE</option>
+              <option value="de">Vista DE→ES</option>
+            </select>
+            <button id="btnExportVocab" class="ghost">Exportar vocab (simple)</button>
+          </div>
+          <div id="vocabList" class="list"></div>
+        </div>
+      </section>
 
-  <!-- REPASO igual -->
-</main>
+      <!-- REPASO (placeholder, tu contenido) -->
+      <section id="tab-repaso" class="panel">
+        <div class="card">
+          <h2>Repaso</h2>
+          <p>Próximamente…</p>
+        </div>
+      </section>
+    </main>
 
-<footer class="bottombar">
-  <button data-tab="import" class="tablink active">📥</button>
-  <button data-tab="frases" class="tablink">📚</button>
-  <!-- NUEVO -->
-  <button data-tab="vocab" class="tablink">🗂️</button>
-</footer>
-
+    <footer class="bottombar">
+      <button data-tab="import" class="tablink active">📥</button>
+      <button data-tab="frases" class="tablink">📚</button>
+      <button data-tab="vocab" class="tablink">🗂️</button>
+      <button data-tab="repaso" class="tablink">🔁</button>
+    </footer>
   </div>
 
   <!-- App -->
