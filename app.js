@@ -31,7 +31,14 @@ const state = { phrases:[], temas:[], vocab:[], dict:{}, quizPool:[], quizIdx:0,
 const uid = (s="")=>{ const b=s.normalize("NFKD").toLowerCase(); let h=2166136261>>>0; for(let i=0;i<b.length;i++){ h^=b.charCodeAt(i); h=Math.imul(h,16777619)>>>0;} return "id_"+h.toString(36); };
 const nowISO = ()=>new Date().toISOString();
 const normalize = v=>(v||"").trim();
-const saveLocal = ()=>{
+
+// === Perf helpers ===
+const collDE = new Intl.Collator("de", {sensitivity:"base"});
+const debounce = (fn,ms=200)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; };
+const rid = (fn)=> (window.requestIdleCallback ? requestIdleCallback(fn,{timeout:200}) : setTimeout(fn,0));
+
+// Persistencia local
+const saveLocal = ()=> {
   localStorage.setItem(LS_KEY,   JSON.stringify(state.phrases));
   localStorage.setItem(LS_TEMAS, JSON.stringify(state.temas));
   localStorage.setItem(LS_VOCAB, JSON.stringify(state.vocab));
@@ -44,6 +51,18 @@ const loadLocal = ()=>{ try{
   state.dict =JSON.parse(localStorage.getItem(LS_DICT)||"{}");
   if(!state.temas.length) state.temas=DEFAULT_TEMAS.slice();
 }catch{ state.phrases=[]; state.temas=DEFAULT_TEMAS.slice(); state.vocab=[]; state.dict={}; } };
+
+// ==== Índices de búsqueda/orden ====
+function indexPhrase(p){
+  p._kAle = p.ale||"";
+  p._q = [p.ale,p.es,p.ch,p.pron,p.pronCh,(p.variaciones||[]).join(" ")].join(" ").toLowerCase();
+  return p;
+}
+function indexVocab(v){
+  v._kDe = v.de||"";
+  v._q = [v.es,v.de,v.tema,(v.etiquetas||[]).join(" ")].join(" ").toLowerCase();
+  return v;
+}
 
 // ==== Diccionario global (PipeDict v1) ====
 const did = (s)=> uid("d||"+(s||"")).slice(3);
@@ -78,16 +97,16 @@ function parsePipeDict(text){
     const es    = esArr.join(" / ");
     const tema  = dictGet(temaId)||"";
 
-    const obj = {
+    const obj = indexPhrase({
       id: uid(`${ale}||${es}||${tema}`),
       ale, ch, pron, pronCh: pronC, es, tema,
       variaciones:[], estado:"", dificultad:"", tipo:"", createdAt:nowISO()
-    };
+    });
     if(obj.ale && obj.es) outP.push(obj);
 
     for(const esOne of esArr){
       const vid = uid(`voc||${esOne}||${(ale||"").toLowerCase()}`);
-      outV.push({ id:vid, es: esOne, de:(ale||"").toLowerCase(), tema, etiquetas:[], createdAt: nowISO() });
+      outV.push(indexVocab({ id:vid, es: esOne, de:(ale||"").toLowerCase(), tema, etiquetas:[], createdAt: nowISO() }));
     }
   }
   return { phrases: outP, vocab: outV };
@@ -141,8 +160,8 @@ function renderCard(p){
         Tipo: ${p.tipo||"—"}
       </div>
       <div class="row2">
-        <button class="ghost btn-edit">✎</button>
-        <button class="ghost btn-del">🗑️</button>
+        <button class="ghost btn-edit" type="button">✎</button>
+        <button class="ghost btn-del"  type="button">🗑️</button>
       </div>
     </div>
   `;
@@ -151,22 +170,31 @@ function renderList(){
   const q=(normalize($("#q")?.value)).toLowerCase();
   const tema=$("#fTema")?.value, est=$("#fEstado")?.value, dif=$("#fDificultad")?.value, tipo=$("#fTipo")?.value;
 
-  let arr = state.phrases.slice();
-  if(q)   arr = arr.filter(p=>[p.ale,p.es,p.ch,p.pron,p.pronCh,(p.variaciones||[]).join(" ")].join(" ").toLowerCase().includes(q));
+  let arr = state.phrases;
+  if(q)   arr = arr.filter(p=> (p._q||"").includes(q));
   if(tema)arr = arr.filter(p=>p.tema===tema);
   if(est) arr = arr.filter(p=>p.estado===est);
   if(dif) arr = arr.filter(p=>p.dificultad===dif);
   if(tipo)arr = arr.filter(p=>p.tipo===tipo);
-  arr.sort((a,b)=> (a.ale||"").localeCompare(b.ale||"", "de", {sensitivity:"base"}));
+  arr = arr.slice().sort((a,b)=> collDE.compare(a._kAle||a.ale||"", b._kAle||b.ale||""));
 
   const list=$("#phraseList"); if(!list) return;
-  list.innerHTML = arr.map(renderCard).join("");
-
-  $$("#phraseList .card-item").forEach(item=>{
-    const id=item.dataset.id; const p=state.phrases.find(x=>x.id===id);
-    item.querySelector(".btn-del")?.addEventListener("click", (e)=>{ e.stopPropagation(); delPhrase(id); });
-    item.querySelector(".btn-edit")?.addEventListener("click", (e)=>{ e.stopPropagation(); quickEdit(p); });
-  });
+  // Render por lotes (para listas grandes)
+  list.textContent = "";
+  const BATCH = 200;
+  let i=0;
+  function pump(){
+    if(i>=arr.length) return;
+    const frag=document.createDocumentFragment();
+    for(let c=0;c<BATCH && i<arr.length;c++,i++){
+      const wrap=document.createElement("div");
+      wrap.innerHTML = renderCard(arr[i]);
+      frag.appendChild(wrap.firstElementChild);
+    }
+    list.appendChild(frag);
+    rid(pump);
+  }
+  pump();
 }
 
 // ==== Vocab: UI + modal ====
@@ -242,7 +270,7 @@ function renderVocab(){
   const mode = state.vocabMode;
   const list = $("#vocabList"); if(!list) return;
   let data = state.vocab.slice();
-  data.sort((a,b)=> (a.de||"").localeCompare(b.de||"", "de", {sensitivity:"base"}));
+  data.sort((a,b)=> collDE.compare(a._kDe||a.de||"", b._kDe||b.de||""));
   list.innerHTML = data.map(v=>{
     const head = mode==="es" ? (v.es || v.de || "—") : (v.de || v.es || "—");
     const tail = mode==="es" ? (v.de || "(DE pendiente)") : (v.es || "(ES pendiente)");
@@ -256,28 +284,12 @@ function renderVocab(){
         <div class="ale">${head}</div>
         <div class="meta detail">${tail}</div>
         <div class="row2">
-          <button class="ghost btn-v-edit">✎</button>
-          <button class="ghost btn-v-del">🗑️</button>
+          <button class="ghost btn-v-edit" type="button">✎</button>
+          <button class="ghost btn-v-del"  type="button">🗑️</button>
         </div>
       </div>
     `;
   }).join("");
-
-  $$("#vocabList .card-item.vocab").forEach(el=>{
-    const id = el.dataset.id;
-    const item = state.vocab.find(v=>v.id===id);
-    el.addEventListener("click", (e)=>{
-      if(e.target.closest(".btn-v-edit") || e.target.closest(".btn-v-del")) return;
-      openVocabModal(item);
-    });
-    el.addEventListener("keydown", (e)=>{ if(e.key==="Enter"||e.key===" ") { e.preventDefault(); openVocabModal(item);} });
-    el.querySelector(".btn-v-edit")?.addEventListener("click", (e)=>{ e.stopPropagation(); openVocabModal(item); });
-    el.querySelector(".btn-v-del")?.addEventListener("click", async (e)=>{ 
-      e.stopPropagation();
-      await delVocab(id);
-      renderVocab();
-    });
-  });
 }
 
 // ==== RTDB sync ====
@@ -292,15 +304,13 @@ async function syncFromRTDB(){
     const cloudP = Object.values(snapP.val()||{});
     const pmap = new Map(state.phrases.map(p=>[p.id,p]));
     for(const p of cloudP) pmap.set(p.id,p);
-    state.phrases = Array.from(pmap.values());
+    state.phrases = Array.from(pmap.values()).map(indexPhrase);
     for(const p of state.phrases){ if(p.tema && !state.temas.includes(p.tema)) state.temas.push(p.tema); }
-    sortPhrases();
 
     const cloudV = Object.values(snapV.val()||{});
     const vmap = new Map(state.vocab.map(v=>[v.id,v]));
     for(const v of cloudV) vmap.set(v.id,v);
-    state.vocab = Array.from(vmap.values());
-    sortVocab();
+    state.vocab = Array.from(vmap.values()).map(indexVocab);
 
     state.dict = Object.assign({}, state.dict, (snapD.val()||{}));
 
@@ -310,6 +320,7 @@ async function syncFromRTDB(){
 
 // ==== Persistencia ====
 async function persistPhrase(p){
+  p = indexPhrase(p);
   const i=state.phrases.findIndex(x=>x.id===p.id);
   if(i>=0) state.phrases[i]=p; else state.phrases.push(p);
   sortPhrases();
@@ -317,6 +328,7 @@ async function persistPhrase(p){
   try{ await DB.ref(`${PHRASES_PATH}/${p.id}`).set(p); }catch(e){ console.error("RTDB set phrase", e); }
 }
 async function persistVocab(v){
+  v = indexVocab(v);
   const i=state.vocab.findIndex(x=>x.id===v.id);
   if(i>=0) state.vocab[i]=v; else state.vocab.push(v);
   sortVocab();
@@ -333,13 +345,14 @@ async function delVocab(id){
   state.vocab = state.vocab.filter(x=>x.id!==id);
   saveLocal();
   try{ await DB.ref(`${VOCAB_PATH}/${id}`).remove(); }catch(e){ console.warn(e); }
+  renderVocab();
 }
 function quickEdit(p){
-  const ale=prompt("Alemán:", p.ale); if(ale===null) return;
+  const ale=prompt("Alemán:", p.ale||""); if(ale===null) return;
   const pron=prompt("Pronunciación (DE):", p.pron||""); if(pron===null) return;
   const ch=prompt("Suizo (CH):", p.ch||""); if(ch===null) return;
   const pronCh=prompt("Pronunciación (CH):", p.pronCh||""); if(pronCh===null) return;
-  const es=prompt("Español:", p.es); if(es===null) return;
+  const es=prompt("Español:", p.es||""); if(es===null) return;
   const tema=prompt("Tema:", p.tema||""); if(tema===null) return;
   const vari=prompt("Variaciones (sep. /):", (p.variaciones||[]).join(" / "));
   Object.assign(p,{
@@ -349,14 +362,10 @@ function quickEdit(p){
   persistPhrase(p); renderList();
 }
 function sortPhrases(){
-  state.phrases.sort((a,b)=>
-    (a.ale||"").localeCompare(b.ale||"", "de", {sensitivity:"base"})
-  );
+  state.phrases.sort((a,b)=> collDE.compare(a._kAle||a.ale||"", b._kAle||b.ale||""));
 }
 function sortVocab(){
-  state.vocab.sort((a,b)=>
-    (a.de||"").localeCompare(b.de||"", "de", {sensitivity:"base"})
-  );
+  state.vocab.sort((a,b)=> collDE.compare(a._kDe||a.de||"", b._kDe||b.de||""));
 }
 
 // ==== Exportaciones ====
@@ -400,12 +409,11 @@ async function copyTextOrDownload(filename, text){
 }
 
 // ==== UI / Tabs / Import ====
+// Mantiene exactamente el comportamiento del menú de navegación
 function setActiveTab(tab){
-  // botones
   $$(".tab, .tablink").forEach(b=>{
     b.classList.toggle("active", b.dataset.tab===tab);
   });
-  // panels: clase + atributo hidden
   $$(".panel").forEach(p=>{
     const active = p.id===`tab-${tab}`;
     p.classList.toggle("active", active);
@@ -414,7 +422,7 @@ function setActiveTab(tab){
 }
 
 function setupUI(){
-  // Tabs
+  // Tabs navegación
   $$(".tab, .tablink").forEach(btn=>{
     btn.addEventListener("click", ()=> setActiveTab(btn.dataset.tab));
   });
@@ -442,12 +450,12 @@ function setupUI(){
 
     const pmap=new Map(state.phrases.map(p=>[p.id,p]));
     for(const it of phrases) pmap.set(it.id,it);
-    state.phrases = Array.from(pmap.values());
+    state.phrases = Array.from(pmap.values()).map(indexPhrase);
     sortPhrases();
 
     const vmap=new Map(state.vocab.map(v=>[v.id,v]));
     for(const v of vocab) vmap.set(v.id, Object.assign({etiquetas:[]}, v));
-    state.vocab = Array.from(vmap.values());
+    state.vocab = Array.from(vmap.values()).map(indexVocab);
     sortVocab();
 
     saveLocal(); renderList(); renderVocab();
@@ -459,13 +467,14 @@ function setupUI(){
     if($("#importText")) $("#importText").value = "";
   });
 
-  $("#btnClearInput")?.addEventListener("click", ()=> $("#importText") && ($("#importText").value=""));
+  $("#btnClearInput")?.addEventListener("click", ()=> { const t=$("#importText"); if(t) t.value=""; });
 
-  // Filtros de la lista
+  // Filtros (debounce)
+  const debouncedRenderList = debounce(renderList, 200);
   ["#q","#fTema","#fEstado","#fDificultad","#fTipo"].forEach(id=>{
     const el=$(id); if(!el) return;
-    el.addEventListener("input",renderList);
-    el.addEventListener("change",renderList);
+    el.addEventListener("input",debouncedRenderList);
+    el.addEventListener("change",debouncedRenderList);
   });
 
   // Export PipeDict v1 (frases)
@@ -487,13 +496,50 @@ function setupUI(){
     renderVocab();
   });
 
+  // Delegación de eventos (frases): evita listeners por tarjeta
+  const listP = $("#phraseList");
+  listP?.addEventListener("click",(e)=>{
+    const btnDel = e.target.closest(".btn-del");
+    const btnEdt = e.target.closest(".btn-edit");
+    const card   = e.target.closest(".card-item");
+    if(!card) return;
+    const id = card.dataset.id;
+    const p = state.phrases.find(x=>x.id===id);
+    if(btnDel){ e.stopPropagation(); delPhrase(id); return; }
+    if(btnEdt){ e.stopPropagation(); quickEdit(p); return; }
+  });
+
+  // Delegación de eventos (vocab)
+  const listV = $("#vocabList");
+  listV?.addEventListener("click", async (e)=>{
+    const card = e.target.closest(".card-item.vocab"); if(!card) return;
+    const id = card.dataset.id;
+    const item = state.vocab.find(v=>v.id===id);
+    if(e.target.closest(".btn-v-edit")){ e.stopPropagation(); openVocabModal(item); return; }
+    if(e.target.closest(".btn-v-del")){ e.stopPropagation(); await delVocab(id); renderVocab(); return; }
+    openVocabModal(item);
+  });
+  listV?.addEventListener("keydown",(e)=>{
+    if((e.key==="Enter"||e.key===" ") && e.target.closest(".card-item.vocab")){
+      e.preventDefault();
+      const id=e.target.closest(".card-item.vocab").dataset.id;
+      const item=state.vocab.find(v=>v.id===id); openVocabModal(item);
+    }
+  });
+
   // Estado inicial de panels (corrige [hidden] del HTML)
   setActiveTab($(".tab.active, .tablink.active")?.dataset.tab || "import");
 }
 
 // ==== Bootstrap ====
 function bootstrap(){
-  loadLocal(); updateTemaSelects(); renderList(); renderVocab(); setupUI();
+  loadLocal();
+  state.phrases = state.phrases.map(indexPhrase);
+  state.vocab   = state.vocab.map(indexVocab);
+  updateTemaSelects();
+  renderList();
+  renderVocab();
+  setupUI();
   syncFromRTDB();
 }
 document.addEventListener("DOMContentLoaded", bootstrap);
